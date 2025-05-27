@@ -33,15 +33,19 @@ def extract_paragraph(paragraph: Paragraph):
         return {"type": "paragraph", "text": paragraph.text.strip()}
 
 
-def extract_image(image: InlineShape):
-    image_data = image._inline.graphic.graphicData.pic.blipFill.blip.embed
-    part = image.part.related_parts[image_data]
-    image_bytes = part.blob
-    base64_data = base64.b64encode(image_bytes).decode("utf-8")
+def extract_image(image: InlineShape, document):
+    # Get the relationship ID that points to the image part
+    r_id = image._inline.graphic.graphicData.pic.blipFill.blip.embed
+
+    # Use the document's part to get the image binary
+    image_part = document.part.related_parts[r_id]
+    image_bytes = image_part.blob
+
+    base64_data = base64.b64encode(image_bytes).decode('utf-8')
     return {
         "type": "image",
         "image_base64": base64_data,
-        "content_type": part.content_type,
+        "content_type": image_part.content_type
     }
 
 
@@ -59,7 +63,7 @@ def extract_document_content(docx_path):
 
     # Handle inline images separately (python-docx does not treat them as block items)
     for shape in doc.inline_shapes:
-        elements.append(extract_image(shape))
+        elements.append(extract_image(shape, doc))
 
     return elements
 
