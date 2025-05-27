@@ -1,0 +1,14 @@
+[project]
+name = "vt-town-plan"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-docx==0.8.11",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.11",
+]
