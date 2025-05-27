@@ -13,69 +13,74 @@ import base64
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
+USE_PLACEHOLDER_IMAGES = True
 
-def extract_table(table: Table):
-    return {
-        "type": "table",
-        "rows": [[cell.text.strip() for cell in row.cells] for row in table.rows],
-    }
+class DocumentExtract:
+    doc: Document
 
+    def __init__(self, file_path: str) -> None:
+        self.doc = Document(file_path)
 
-def extract_paragraph(paragraph: Paragraph):
-    style_name = paragraph.style.name.lower()
-    if style_name.startswith("heading"):
-        try:
-            level = int(style_name.replace("heading", "").strip())
-        except ValueError:
-            level = 1
-        return {"type": "heading", "level": level, "text": paragraph.text.strip()}
-    else:
-        return {"type": "paragraph", "text": paragraph.text.strip()}
+    def extract(self):
+        """
+        Process the document, extracting the elements into JSON.
+        """
+        elements = []
 
+        for block in self._iter_block_items():
+            if isinstance(block, Paragraph):
+                data = self._extract_paragraph(block)
+                if data["text"]:  # Skip empty paragraphs
+                    elements.append(data)
+            elif isinstance(block, Table):
+                elements.append(self._extract_table(block))
+            else:
+                raise Exception(f"Unexpected instance item {block}")
 
-def extract_image(image: InlineShape, document):
-    # Get the relationship ID that points to the image part
-    r_id = image._inline.graphic.graphicData.pic.blipFill.blip.embed
-
-    # Use the document's part to get the image binary
-    image_part = document.part.related_parts[r_id]
-    image_bytes = image_part.blob
-
-    base64_data = base64.b64encode(image_bytes).decode('utf-8')
-    return {
-        "type": "image",
-        "image_base64": base64_data,
-        "content_type": image_part.content_type
-    }
-
-
-def extract_document_content(docx_path):
-    doc = Document(docx_path)
-    elements = []
-
-    for block in iter_block_items(doc):
-        if isinstance(block, Paragraph):
-            data = extract_paragraph(block)
-            if data["text"]:  # Skip empty paragraphs
-                elements.append(data)
-        elif isinstance(block, Table):
-            elements.append(extract_table(block))
-
-    # Handle inline images separately (python-docx does not treat them as block items)
-    for shape in doc.inline_shapes:
-        elements.append(extract_image(shape, doc))
-
-    return elements
+        return elements
+    
+    def _iter_block_items(self):
+        """Yield paragraphs and tables in document order"""
+        parent_elm = self.doc._element.body
+        for child in parent_elm.iterchildren():
+            if child.tag == qn("w:p"):
+                yield Paragraph(child, self.doc)
+            elif child.tag == qn("w:tbl"):
+                yield Table(child, self.doc)
+            elif child.tag == qn("w:sectPr"):
+                # This is formatting width/height/margin info we don't care about right now
+                pass
+            else:
+                raise Exception(f"Unhandled tag -  {child.tag}")
 
 
-def iter_block_items(parent):
-    """Yield paragraphs and tables in document order"""
-    parent_elm = parent._element.body
-    for child in parent_elm.iterchildren():
-        if child.tag == qn("w:p"):
-            yield Paragraph(child, parent)
-        elif child.tag == qn("w:tbl"):
-            yield Table(child, parent)
+    def _extract_table(self, table: Table):
+        """
+        Process a table block item.
+        """
+        return {
+            "type": "table",
+            "rows": [[cell.text.strip() for cell in row.cells] for row in table.rows],
+        }
+
+
+    def _extract_paragraph(self, paragraph: Paragraph):
+        """
+        Add the section path.
+        """
+        style_name = paragraph.style.name.lower()
+        if style_name.startswith("heading"):
+            try:
+                level = int(style_name.replace("heading", "").strip())
+            except ValueError:
+                level = 1
+            return {"type": "heading", "level": level, "text": paragraph.text.strip()}
+        else:
+            return {"type": "paragraph", "text": paragraph.text.strip(), "section_path": []} # Implement section_path!
+        
+
+
+
 
 
 # Example usage: `python extract.py files/docx_test.docx`
@@ -101,7 +106,9 @@ if __name__ == "__main__":
     input_filename = Path(args.input_file).stem
     output_file = output_dir / f"{input_filename}.json"
 
-    content = extract_document_content(args.input_file)
+    ex = DocumentExtract(args.input_file)
+
+    content = ex.extract()
 
     # Save to JSON file
     with open(output_file, "w", encoding="utf-8") as f:
