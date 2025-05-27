@@ -3,6 +3,7 @@ Given a docx file, extract its content to a structured JSON file to be used for 
 and generating embeddings.
 """
 
+from dataclasses import dataclass
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
@@ -15,11 +16,18 @@ from docx.oxml.ns import qn
 
 USE_PLACEHOLDER_IMAGES = True
 
+@dataclass
+class Heading:
+    level: int
+    text: str
+
 class DocumentExtract:
     doc: Document
+    current_section: list[Heading]
 
     def __init__(self, file_path: str) -> None:
         self.doc = Document(file_path)
+        self.current_section = []
 
     def extract(self):
         """
@@ -74,14 +82,17 @@ class DocumentExtract:
                 level = int(style_name.replace("heading", "").strip())
             except ValueError:
                 level = 1
-            return {"type": "heading", "level": level, "text": paragraph.text.strip()}
+
+            # Adjust our current section. 
+            while self.current_section and self.current_section[-1].level >= level:
+                self.current_section.pop()
+
+            curr_heading = Heading(level, paragraph.text.strip())
+            self.current_section.append(curr_heading)
+            return {"type": "heading", "text": curr_heading.text, "level": curr_heading.level}
         else:
-            return {"type": "paragraph", "text": paragraph.text.strip(), "section_path": []} # Implement section_path!
+            return {"type": "paragraph", "text": paragraph.text.strip(), "section_path": [s.text for s in self.current_section]}
         
-
-
-
-
 
 # Example usage: `python extract.py files/docx_test.docx`
 if __name__ == "__main__":
