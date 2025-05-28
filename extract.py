@@ -74,7 +74,7 @@ class DocumentExtract:
 
     def _extract_paragraph(self, paragraph: Paragraph):
         """
-        Add the section path.
+        Parse headers and text body, keeping the current section path up to date.
         """
         style_name = paragraph.style.name.lower()
         if style_name.startswith("heading"):
