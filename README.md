@@ -24,7 +24,7 @@ This project uses pgvector to store the embeddings. It only runs locally right n
 docker-compose -f docker/db.yml up -d
 
 # Down the db (to reset it)
-docker-compose down -v
+docker compose -f docker/db.yml down -v
 ```
 
 ## Running

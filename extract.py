@@ -4,10 +4,12 @@ and generating embeddings.
 """
 
 from dataclasses import dataclass
+import psycopg
 from sentence_transformers import SentenceTransformer
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+import json
 
 # Helper to preserve order of block-level elements
 from docx.oxml import OxmlElement
@@ -56,8 +58,8 @@ class DocumentExtract:
 
         def prepare(chunk):
             if chunk.get("section_path", None):
-                prefix =  "/".join(chunk.get("section_path"))
-                return f"{prefix}/{chunk['text']}"
+                prefix =  "\n".join(chunk.get("section_path"))
+                return f"{prefix}\n{chunk['text']}"
             return chunk["text"]
         
         texts = [prepare(chunk) for chunk in self.elements]
@@ -68,6 +70,38 @@ class DocumentExtract:
 
         for i, e in enumerate(self.elements):
             e["embedding"] = embeddings[i]
+
+    def dump_to_file(self, path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.elements, f, indent=2)
+
+    def dump_to_db(self):
+        conn = psycopg.connect(
+            dbname="db",
+            user="admin",
+            password="password",
+            host="localhost",
+            port=5431
+        )
+        cur = conn.cursor()
+
+        for e in self.elements:
+            cur.execute(
+                """
+                INSERT INTO plan_chunks (content_type, content, section_path, embedding)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    e["type"],
+                    e["text"],
+                    json.dumps(e.get("section_path", None)),
+                    e["embedding"]
+                )
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
     
     def _iter_block_items(self):
         """Yield paragraphs and tables in document order"""
@@ -118,7 +152,6 @@ class DocumentExtract:
 
 # Example usage: `python extract.py files/docx_test.docx`
 if __name__ == "__main__":
-    import json
     import argparse
     from pathlib import Path
 
@@ -142,12 +175,8 @@ if __name__ == "__main__":
 
     ex.extract()
     ex.encode()
-
-    content = ex.elements
-
-    # Save to JSON file
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(content, f, indent=2)
+    ex.dump_to_file(output_file)
+    ex.dump_to_db()
 
     print(f"Content extracted and saved to: {output_file}")
 
