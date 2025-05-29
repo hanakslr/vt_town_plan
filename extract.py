@@ -4,11 +4,10 @@ and generating embeddings.
 """
 
 from dataclasses import dataclass
+from sentence_transformers import SentenceTransformer
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
-from docx.shape import InlineShape
-import base64
 
 # Helper to preserve order of block-level elements
 from docx.oxml import OxmlElement
@@ -24,10 +23,12 @@ class Heading:
 class DocumentExtract:
     doc: Document
     current_section: list[Heading]
+    elements: list
 
     def __init__(self, file_path: str) -> None:
         self.doc = Document(file_path)
         self.current_section = []
+        self.elements = []
 
     def extract(self):
         """
@@ -45,7 +46,22 @@ class DocumentExtract:
             else:
                 raise Exception(f"Unexpected instance item {block}")
 
-        return elements
+        self.elements = elements
+
+    def encode(self):
+        if not self.elements:
+            return
+        
+        model = SentenceTransformer("all-MiniLM-L6-v2")  # fast and good for retrieval
+
+        texts = [chunk["text"] for chunk in self.elements]
+        embeddings = model.encode(texts, convert_to_numpy=True)
+        embeddings = embeddings.tolist()
+
+        assert len(embeddings) == len(self.elements), "Expected embeddings and elements to be the same length"
+
+        for i, e in enumerate(self.elements):
+            e["embedding"] = embeddings[i]
     
     def _iter_block_items(self):
         """Yield paragraphs and tables in document order"""
@@ -98,7 +114,6 @@ class DocumentExtract:
 if __name__ == "__main__":
     import json
     import argparse
-    import os
     from pathlib import Path
 
     parser = argparse.ArgumentParser(
@@ -119,10 +134,17 @@ if __name__ == "__main__":
 
     ex = DocumentExtract(args.input_file)
 
-    content = ex.extract()
+    ex.extract()
+    ex.encode()
+
+    content = ex.elements
 
     # Save to JSON file
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(content, f, indent=2)
 
     print(f"Content extracted and saved to: {output_file}")
+
+    
+
+
