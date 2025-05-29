@@ -29,6 +29,5 @@ docker compose -f docker/db.yml down -v
 
 ## Running
 
-1. Extract structure of the docx file. `extract.py file_name`. This will dump structured JSON to ouput/
-2. Transform the data. Using sentence transformers to generated embeddings in `transform.py`
-3. Load the data into
+1. Extract structure and embeddings of the docx file. `python extract.py file_name`. This will read, chunk, embed, and dump to pg.
+2. Search. Running `python search.py search_term` will perform a semantic search and return the top 5 results.
