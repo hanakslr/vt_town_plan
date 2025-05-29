@@ -54,7 +54,13 @@ class DocumentExtract:
         
         model = SentenceTransformer("all-MiniLM-L6-v2")  # fast and good for retrieval
 
-        texts = [chunk["text"] for chunk in self.elements]
+        def prepare(chunk):
+            if chunk.get("section_path", None):
+                prefix =  "/".join(chunk.get("section_path"))
+                return f"{prefix}/{chunk['text']}"
+            return chunk["text"]
+        
+        texts = [prepare(chunk) for chunk in self.elements]
         embeddings = model.encode(texts, convert_to_numpy=True)
         embeddings = embeddings.tolist()
 
