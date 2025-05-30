@@ -1,9 +1,9 @@
 """
 Command line semantic search of what is in the local db.
 """
+
 import psycopg
 from sentence_transformers import SentenceTransformer
-
 
 if __name__ == "__main__":
     import argparse
@@ -21,13 +21,8 @@ if __name__ == "__main__":
     embedding = embedding.tolist()
 
     conn = psycopg.connect(
-        dbname="db",
-        user="admin",
-        password="password",
-        host="localhost",
-        port=5431
+        dbname="db", user="admin", password="password", host="localhost", port=5431
     )
-
 
     cur = conn.cursor()
 
@@ -39,8 +34,9 @@ if __name__ == "__main__":
         ORDER BY embedding <-> %s::vector
         LIMIT 5;
         """,
-        (embedding,))
-    
+        (embedding,),
+    )
+
     results = cur.fetchall()
     print("\nTop 5 most similar chunks:")
     print("-" * 80)
@@ -48,7 +44,11 @@ if __name__ == "__main__":
         print(f"\n{i}. Type: {content_type}")
         if section_path:
             print(f"   Section: {' > '.join(section_path)}")
-        print(f"   Content: {content[:200]}..." if len(content) > 200 else f"   Content: {content}")
+        print(
+            f"   Content: {content[:200]}..."
+            if len(content) > 200
+            else f"   Content: {content}"
+        )
         print("-" * 80)
 
     cur.close()
