@@ -17,10 +17,12 @@ from docx.oxml.ns import qn
 
 USE_PLACEHOLDER_IMAGES = True
 
+
 @dataclass
 class Heading:
     level: int
     text: str
+
 
 class DocumentExtract:
     doc: Document
@@ -41,10 +43,12 @@ class DocumentExtract:
         for block in self._iter_block_items():
             if isinstance(block, Paragraph):
                 data = self._extract_paragraph(block)
-                if data["text"]:  # Skip empty paragraphs
+                if data and data["text"]:  # Skip empty paragraphs
                     elements.append(data)
             elif isinstance(block, Table):
-                elements.append(self._extract_table(block))
+                data = self._extract_table(block)
+                if data:
+                    elements.append(data)
             else:
                 raise Exception(f"Unexpected instance item {block}")
 
@@ -53,20 +57,22 @@ class DocumentExtract:
     def encode(self):
         if not self.elements:
             return
-        
+
         model = SentenceTransformer("all-MiniLM-L6-v2")  # fast and good for retrieval
 
         def prepare(chunk):
             if chunk.get("section_path", None):
-                prefix =  "\n".join(chunk.get("section_path"))
+                prefix = "\n".join(chunk.get("section_path"))
                 return f"{prefix}\n{chunk['text']}"
             return chunk["text"]
-        
+
         texts = [prepare(chunk) for chunk in self.elements]
         embeddings = model.encode(texts, convert_to_numpy=True)
         embeddings = embeddings.tolist()
 
-        assert len(embeddings) == len(self.elements), "Expected embeddings and elements to be the same length"
+        assert len(embeddings) == len(self.elements), (
+            "Expected embeddings and elements to be the same length"
+        )
 
         for i, e in enumerate(self.elements):
             e["embedding"] = embeddings[i]
@@ -77,11 +83,7 @@ class DocumentExtract:
 
     def dump_to_db(self):
         conn = psycopg.connect(
-            dbname="db",
-            user="admin",
-            password="password",
-            host="localhost",
-            port=5431
+            dbname="db", user="admin", password="password", host="localhost", port=5431
         )
         cur = conn.cursor()
 
@@ -95,14 +97,14 @@ class DocumentExtract:
                     e["type"],
                     e["text"],
                     json.dumps(e.get("section_path", None)),
-                    e["embedding"]
-                )
+                    e["embedding"],
+                ),
             )
 
         conn.commit()
         cur.close()
         conn.close()
-    
+
     def _iter_block_items(self):
         """Yield paragraphs and tables in document order"""
         parent_elm = self.doc._element.body
@@ -117,38 +119,103 @@ class DocumentExtract:
             else:
                 raise Exception(f"Unhandled tag -  {child.tag}")
 
-
     def _extract_table(self, table: Table):
         """
         Process a table block item.
         """
+
+        # There are a couple special case tables that we want to detect
+
+        # Chapter titles are in headers
+
+        # Goals
+
+        # 3 Things to know
+
+        # 3 Things public engagement told us
+
+        seen_cells = set()
+
+        rows = []
+
+        styles = []
+
+        for row in table.rows:
+            cols = []
+            for cell in row.cells:
+                # Avoid duplicate references due to merged cells
+                cell_id = id(cell._tc)
+                if cell_id in seen_cells:
+                    continue
+                seen_cells.add(cell_id)
+
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        font = run.font
+                        style_info = {
+                            "text": run.text,
+                            "font_name": font.name,
+                            "font_size": font.size.pt if font.size else None,
+                            "bold": font.bold,
+                            "italic": font.italic,
+                        }
+
+                text = cell.text.strip()
+                if text:
+                    cols.append(text)
+                    styles.append(style_info)
+            if cols:
+                rows.append(cols)
+
+        # Check if this is actually a big chapter header
+        if all(
+            [
+                s["font_name"] == "Bumper Sticker" and float(s["font_size"]) >= 26.0
+                for s in styles
+            ]
+        ) and (len(rows) == 1 and len(rows[0]) == 2):
+            self.current_section.append(Heading(1, rows[0][1]))
+            return {"type": "heading", "level": 1, "text": rows[0][1]}
+
         return {
             "type": "table",
-            "rows": [[cell.text.strip() for cell in row.cells] for row in table.rows],
+            "rows": rows,
         }
-
 
     def _extract_paragraph(self, paragraph: Paragraph):
         """
         Parse headers and text body, keeping the current section path up to date.
         """
-        style_name = paragraph.style.name.lower()
-        if style_name.startswith("heading"):
-            try:
-                level = int(style_name.replace("heading", "").strip())
-            except ValueError:
-                level = 1
 
-            # Adjust our current section. 
+        if not paragraph.text.strip():
+            return
+
+        if paragraph.style.name == "Section Heading":
+            level = 2
+
+            # Adjust our current section.
             while self.current_section and self.current_section[-1].level >= level:
                 self.current_section.pop()
 
             curr_heading = Heading(level, paragraph.text.strip())
             self.current_section.append(curr_heading)
-            return {"type": "heading", "text": curr_heading.text, "level": curr_heading.level}
+            return {
+                "type": "heading",
+                "text": curr_heading.text,
+                "level": curr_heading.level,
+            }
+        elif paragraph.style.name in ["Normal", "No Spacing"]:
+            return {
+                "type": "paragraph",
+                "paragraph_style": paragraph.style.name,
+                "text": paragraph.text.strip(),
+                "section_path": [s.text for s in self.current_section],
+            }
         else:
-            return {"type": "paragraph", "text": paragraph.text.strip(), "section_path": [s.text for s in self.current_section]}
-        
+            raise Exception(
+                f"Unknown paragraph style {paragraph.style.name}. Content: {paragraph.text.strip()}"
+            )
+
 
 # Example usage: `python extract.py files/docx_test.docx`
 if __name__ == "__main__":
@@ -174,12 +241,8 @@ if __name__ == "__main__":
     ex = DocumentExtract(args.input_file)
 
     ex.extract()
-    ex.encode()
+    # ex.encode()
     ex.dump_to_file(output_file)
-    ex.dump_to_db()
+    # ex.dump_to_db()
 
     print(f"Content extracted and saved to: {output_file}")
-
-    
-
-
