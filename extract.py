@@ -127,12 +127,36 @@ class DocumentExtract:
         # There are a couple special case tables that we want to detect
 
         # Chapter titles are in headers
-
         # Goals
+        """
+        {
+            type: "2050_goals_table",
+            section: ""
+            values: {
+                livable: "",
+                resilient: "",
+                equitable: ""
+            }
+        }
+        """
 
         # 3 Things to know
-
+        """
+        {
+            type: "3_facts_table",
+            section: "",
+            facts: [
+                {
+                    title: ""
+                    text: ""
+                }
+            ]
+        }
+        """
         # 3 Things public engagement told us
+        """
+        same as above but type == 3_public_engagement
+        """
 
         seen_cells = set()
 
@@ -176,6 +200,25 @@ class DocumentExtract:
         ) and (len(rows) == 1 and len(rows[0]) == 2):
             self.current_section.append(Heading(1, rows[0][1]))
             return {"type": "heading", "level": 1, "text": rows[0][1]}
+
+        # Is this actually the 2050 goals table?
+        if rows and rows[0] and rows[0][0].startswith("Goals: In 2050"):
+            assert len(rows) == 7, (
+                f"Expected 7, found {len(rows[0])} - num rows {len(rows)}"
+            )
+            assert rows[1][0] == "Livable", f"Expected Livable, found {rows[1][0]}"
+            assert rows[3][0] == "Resilient", f"Expected Resilient, found {rows[3][0]}"
+            assert rows[5][0] == "Equitable", f"Expected Equitable, found {rows[5][0]}"
+
+            return {
+                "type": "2050_goals",
+                "section": self.current_section[0].text,
+                "values": {
+                    "livable": rows[2][0].strip(),
+                    "resilient": rows[4][0].strip(),
+                    "equitable": rows[6][0].strip(),
+                },
+            }
 
         return {
             "type": "table",
