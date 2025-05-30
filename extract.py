@@ -3,21 +3,22 @@ Given a docx file, extract its content to a structured JSON file to be used for 
 and generating embeddings.
 """
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 from zipfile import ZipFile
+
 import psycopg
-from sentence_transformers import SentenceTransformer
 from docx import Document
-from docx.table import Table
-from docx.text.paragraph import Paragraph
-import json
-from lxml import etree
 
 # Helper to preserve order of block-level elements
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+from lxml import etree
+from sentence_transformers import SentenceTransformer
 
 USE_PLACEHOLDER_IMAGES = True
 
