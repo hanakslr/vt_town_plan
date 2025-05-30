@@ -191,6 +191,9 @@ class DocumentExtract:
             if cols:
                 rows.append(cols)
 
+        if not rows:
+            return None
+
         # Check if this is actually a big chapter header
         if all(
             [
@@ -212,12 +215,32 @@ class DocumentExtract:
 
             return {
                 "type": "2050_goals",
+                "text": rows[0][0],
                 "section": self.current_section[0].text,
                 "values": {
                     "livable": rows[2][0].strip(),
                     "resilient": rows[4][0].strip(),
                     "equitable": rows[6][0].strip(),
                 },
+            }
+
+        # Is this our 3 Facts table?
+        if rows and rows[0] and rows[0][0].startswith("Three Things"):
+            assert len(rows) == 7, (
+                f"For 3 Facts Table - Expected 7, found {len(rows[0])} - num rows {len(rows)}"
+            )
+
+            return {
+                "type": "3_public_engagement_findings"
+                if "Public Engagement" in rows[0][0]
+                else "3_facts",
+                "text": rows[0][0],
+                "section": self.current_section[0].text,
+                "facts": [
+                    {"title": rows[1][0], "text": rows[2][0]},
+                    {"title": rows[3][0], "text": rows[4][0]},
+                    {"title": rows[5][0], "text": rows[6][0]},
+                ],
             }
 
         return {
@@ -246,6 +269,7 @@ class DocumentExtract:
                 "type": "heading",
                 "text": curr_heading.text,
                 "level": curr_heading.level,
+                "section": self.current_section[0].text,
             }
         elif paragraph.style.name in ["Normal", "No Spacing"]:
             return {
