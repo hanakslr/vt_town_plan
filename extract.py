@@ -3,13 +3,17 @@ Given a docx file, extract its content to a structured JSON file to be used for 
 and generating embeddings.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
+from typing import Any
+from zipfile import ZipFile
 import psycopg
 from sentence_transformers import SentenceTransformer
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 import json
+from lxml import etree
 
 # Helper to preserve order of block-level elements
 from docx.oxml import OxmlElement
@@ -24,15 +28,67 @@ class Heading:
     text: str
 
 
+# Step 1: Load the numbering.xml file from the .docx archive
+def load_numbering_xml(docx_path):
+    with ZipFile(docx_path) as docx_zip:
+        numbering_xml = docx_zip.read("word/numbering.xml")
+        return etree.fromstring(numbering_xml)
+
+
+# Step 2: Parse numbering definitions from numbering.xml
+def parse_numbering_definitions(numbering_tree):
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+    numId_to_abstractId = {}
+    abstractId_to_levels = {}
+
+    for num in numbering_tree.findall(".//w:num", namespaces=ns):
+        numId = num.get(f"{{{ns['w']}}}numId")
+        abstractNumId_el = num.find(".//w:abstractNumId", namespaces=ns)
+        if abstractNumId_el is not None:
+            numId_to_abstractId[numId] = abstractNumId_el.get(f"{{{ns['w']}}}val")
+
+    for abstractNum in numbering_tree.findall(".//w:abstractNum", namespaces=ns):
+        abstractId = abstractNum.get(f"{{{ns['w']}}}abstractNumId")
+        levels = {}
+        for lvl in abstractNum.findall(".//w:lvl", namespaces=ns):
+            ilvl = lvl.get(f"{{{ns['w']}}}ilvl")
+            numFmt = lvl.find("w:numFmt", namespaces=ns)
+            lvlText = lvl.find("w:lvlText", namespaces=ns)
+            levels[ilvl] = {
+                "numFmt": numFmt.get(f"{{{ns['w']}}}val")
+                if numFmt is not None
+                else None,
+                "lvlText": lvlText.get(f"{{{ns['w']}}}val")
+                if lvlText is not None
+                else None,
+            }
+        abstractId_to_levels[abstractId] = levels
+
+    return numId_to_abstractId, abstractId_to_levels
+
+
 class DocumentExtract:
     doc: Document
     current_section: list[Heading]
+    numbering_tree: Any
     elements: list
 
     def __init__(self, file_path: str) -> None:
         self.doc = Document(file_path)
         self.current_section = []
         self.elements = []
+        self.numbering_tree = load_numbering_xml(file_path)
+        self.numId_to_abstractId, self.abstractId_to_levels = (
+            parse_numbering_definitions(self.numbering_tree)
+        )
+
+        print("abstractid to levels")
+        print(self.abstractId_to_levels)
+
+        print("numlevels to abstrract id")
+        print(self.numId_to_abstractId)
+        self.list_counters = defaultdict(lambda: defaultdict(int))
 
     def extract(self):
         """
@@ -119,43 +175,40 @@ class DocumentExtract:
             else:
                 raise Exception(f"Unhandled tag -  {child.tag}")
 
+    # Track list state and render list numbers
+    def build_list_number(self, numId, ilvl):
+        abstract_id = self.numId_to_abstractId[numId]
+        levels = self.abstractId_to_levels[abstract_id]
+
+        # Pull the lvlText and format from the current level
+        lvlText = levels[str(ilvl)]["lvlText"]
+        label = lvlText
+
+        ilvl = int(ilvl)
+        # Reset deeper levels
+        for lvl in range(ilvl + 1, 9):
+            self.list_counters[numId][lvl] = 0
+        # Increment current level
+        self.list_counters[numId][ilvl] += 1
+
+        print(self.list_counters)
+
+        # Replace each %n with the formatted value from list_counters
+        for n in range(1, 10):  # %1 to %9
+            if f"%{n}" in label:
+                lvl_index = n - 1
+                counter = self.list_counters[numId].get(lvl_index, 0)
+                # TODO - there are different format types.
+                # fmt_type = levels.get(str(lvl_index), {}).get("numFmt", "decimal")
+                label = label.replace(f"%{n}", str(counter))
+
+        return label
+
     def _extract_table(self, table: Table):
         """
         Process a table block item.
-        """
 
-        # There are a couple special case tables that we want to detect
-
-        # Chapter titles are in headers
-        # Goals
-        """
-        {
-            type: "2050_goals_table",
-            section: ""
-            values: {
-                livable: "",
-                resilient: "",
-                equitable: ""
-            }
-        }
-        """
-
-        # 3 Things to know
-        """
-        {
-            type: "3_facts_table",
-            section: "",
-            facts: [
-                {
-                    title: ""
-                    text: ""
-                }
-            ]
-        }
-        """
-        # 3 Things public engagement told us
-        """
-        same as above but type == 3_public_engagement
+        This includes some handling for special cases.
         """
 
         seen_cells = set()
@@ -173,7 +226,25 @@ class DocumentExtract:
                     continue
                 seen_cells.add(cell_id)
 
+                list_num = None
+                style_info = None
                 for para in cell.paragraphs:
+                    ### Try to get list ids
+                    p = para._p
+                    numPr = p.find(".//w:numPr", para._element.nsmap)
+                    if numPr is not None:
+                        ilvl_el = numPr.find("w:ilvl", para._element.nsmap)
+                        numId_el = numPr.find("w:numId", para._element.nsmap)
+                        if ilvl_el is not None and numId_el is not None:
+                            ilvl = ilvl_el.get(
+                                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+                            )
+                            numId = numId_el.get(
+                                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+                            )
+                            list_num = self.build_list_number(numId, ilvl)
+
+                    ### Get styles - just the first run is fine
                     for run in para.runs:
                         font = run.font
                         style_info = {
@@ -184,10 +255,11 @@ class DocumentExtract:
                             "italic": font.italic,
                         }
 
-                text = cell.text.strip()
+                text = cell.text.strip() or list_num
                 if text:
                     cols.append(text)
-                    styles.append(style_info)
+                    if style_info:
+                        styles.append(style_info)
             if cols:
                 rows.append(cols)
 
@@ -242,6 +314,8 @@ class DocumentExtract:
                     {"title": rows[5][0], "text": rows[6][0]},
                 ],
             }
+
+        # Is this the objectives tables
 
         return {
             "type": "table",
