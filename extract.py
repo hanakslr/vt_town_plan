@@ -17,8 +17,7 @@ from docx.text.paragraph import Paragraph
 from lxml import etree
 from sentence_transformers import SentenceTransformer
 
-from parsers.facts_table_parser import parse_facts_table
-from parsers.goals_table_parser import parse_goals_table
+from parsers.table_parsers import TableMerger, TableParserFactory, TableStyles
 
 USE_PLACEHOLDER_IMAGES = True
 
@@ -90,16 +89,33 @@ class DocumentExtract:
         Process the document, extracting the elements into JSON.
         """
         elements = []
+        previous_table = None
 
         for block in self._iter_block_items():
             if isinstance(block, Paragraph):
                 data = self._extract_paragraph(block)
                 if data and data["text"]:  # Skip empty paragraphs
                     elements.append(data)
+                    previous_table = None  # Reset previous table after a paragraph
+
             elif isinstance(block, Table):
                 data = self._extract_table(block)
                 if data:
-                    elements.append(data)
+                    # If this is a table and we had a previous table, check if they should be merged
+                    if (
+                        data.get("type") == "table"
+                        and previous_table
+                        and previous_table.get("type") == "table"
+                        and TableMerger.should_merge(previous_table, data)
+                    ):
+                        # Merge with previous table instead of adding a new one
+                        previous_table = TableMerger.merge_tables(previous_table, data)
+                        # Replace the last element with the merged table
+                        if elements:
+                            elements[-1] = previous_table
+                    else:
+                        elements.append(data)
+                        previous_table = data
             else:
                 raise Exception(f"Unexpected instance item {block}")
 
@@ -199,85 +215,41 @@ class DocumentExtract:
 
     def _extract_table(self, table: Table):
         """
-        Process a table block item.
+        Process a table block item with the new table parser system.
 
-        This includes some handling for special cases.
+        Handles special cases and table merging.
         """
-
+        # Step 1: Do a preliminary extraction of rows and styles to determine the table type
+        rows = []
+        styles = []
         seen_cells = set()
 
-        rows = []
-
-        styles = []
-
-        def is_merged_vertically(tc):
-            vMerge = tc.find(".//w:vMerge", tc.nsmap)
-            if vMerge is not None:
-                val = vMerge.get(qn("w:val"))
-                return val == "continue" or val is None  # continuation
-            return False
-
-        # def is_merged_horizontally(tc):
-        #     gridSpan = tc.find(".//w:gridSpan", tc.nsmap)
-        #     return gridSpan is not None
-
-        def is_merge_origin(tc):
-            # Origin if not vertically merged or it starts the merge
-            vMerge = tc.find(".//w:vMerge", tc.nsmap)
-            return vMerge is None or vMerge.get(qn("w:val")) == "restart"
-
-        # xml_str = etree.tostring(table._element, pretty_print=True, encoding="unicode")
-        # print(xml_str)
-
+        # Extract basic rows and styles to identify table type
         for row in table.rows:
             cols = []
             for cell in row.cells:
-                # Avoid duplicate references due to merged cells
                 cell_id = id(cell._tc)
                 if cell_id in seen_cells:
                     continue
                 seen_cells.add(cell_id)
 
-                # For vertically merged cells, consider both origins and non-origins with content
-                is_vertical_merge = is_merged_vertically(cell._tc)
-                is_origin = is_merge_origin(cell._tc)
-                has_content = bool(cell.text.strip())
+                text = cell.text.strip()
 
-                # Skip cells that are continuations of a merge AND have no content
-                if is_vertical_merge and not is_origin and not has_content:
-                    continue
-
-                list_num = None
+                # Get style info from the first run in the first paragraph
                 style_info = None
                 for para in cell.paragraphs:
-                    ### Try to get list ids
-                    p = para._p
-
-                    numPr = p.find(".//w:numPr", para._element.nsmap)
-                    if numPr is not None:
-                        ilvl_el = numPr.find("w:ilvl", para._element.nsmap)
-                        numId_el = numPr.find("w:numId", para._element.nsmap)
-                        if ilvl_el is not None and numId_el is not None:
-                            ilvl = ilvl_el.get(
-                                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
-                            )
-                            numId = numId_el.get(
-                                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
-                            )
-                            list_num = self.build_list_number(numId, ilvl)
-
-                    ### Get styles - just the first run is fine
                     for run in para.runs:
                         font = run.font
-                        style_info = {
-                            "text": run.text,
-                            "font_name": font.name,
-                            "font_size": font.size.pt if font.size else None,
-                            "bold": font.bold,
-                            "italic": font.italic,
-                        }
-
-                text = cell.text.strip() or list_num
+                        style_info = TableStyles(
+                            text=run.text,
+                            font_name=font.name,
+                            font_size=font.size.pt if font.size else None,
+                            bold=font.bold,
+                            italic=font.italic,
+                        )
+                        break
+                    if style_info:
+                        break
 
                 if text:
                     cols.append(text)
@@ -289,72 +261,38 @@ class DocumentExtract:
         if not rows:
             return None
 
-        # Check if this is actually a big chapter header
-        if all(
-            [
-                s["font_name"] == "Bumper Sticker" and float(s["font_size"]) >= 26.0
-                for s in styles
-            ]
-        ) and (len(rows) == 1 and len(rows[0]) == 2):
-            self.current_section.append(Heading(1, rows[0][1]))
-            return {"type": "heading", "level": 1, "text": rows[0][1]}
+        # Step 2: Create the appropriate parser based on the extracted data
+        section_texts = [s.text for s in self.current_section]
+        parser = TableParserFactory.create_parser(
+            table=table,
+            rows=rows,
+            styles=styles,
+            current_section=section_texts,
+            list_number_generator=self.build_list_number,
+        )
 
-        # Is this actually the 2050 goals table?
-        if rows and rows[0] and rows[0][0].startswith("Goals: In 2050"):
-            values = parse_goals_table(rows)
+        # Step 3: Parse the table
+        result = parser.parse()
 
-            return {
-                "type": "2050_goals",
-                "text": rows[0][0],
-                "section": self.current_section[0].text,
-                "values": values,
-            }
+        # Step 4: Handle special cases
+        if result and result.get("type") == "heading" and result.get("level") == 1:
+            # If this is a chapter header, update the current section
+            self.current_section.append(Heading(1, result["text"]))
 
-        # Is this our 3 Facts table?
-        if rows and rows[0] and rows[0][0].startswith("Three Things"):
-            facts = parse_facts_table(rows)
+        # Step 5: Check if this table should be merged with the previous one
+        if (
+            result
+            and result.get("type") == "table"
+            and self.elements
+            and self.elements[-1].get("type") == "table"
+        ):
+            # Check if tables should be merged (same column count, consecutive in document, etc.)
+            if TableMerger.should_merge(self.elements[-1], result):
+                # Merge with previous table instead of adding a new one
+                self.elements[-1] = TableMerger.merge_tables(self.elements[-1], result)
+                return None  # Signal that we've merged with a previous table
 
-            return {
-                "type": "3_public_engagement_findings"
-                if "Public Engagement" in rows[0][0]
-                else "3_facts",
-                "text": rows[0][0],
-                "section": self.current_section[0].text,
-                "facts": facts,
-            }
-
-        # Is this the objectives tables
-        """
-        {
-            "type": "action_table",
-            "section": "Arts and social infrastructure",
-            "objectives": [
-            {"label": "2.A", "text": "...."}
-            ],
-            "strategies": [
-            {
-                "label": "2.1",
-                "text": "...",
-                "actions": [
-                {
-                    "label": "2.1.1",
-                    "text": "...",
-                    "responsibility": "...",
-                    "time_frame": "...",
-                    "cost": "...",
-                    "starred": true,
-                    "multiple_strategies": true
-                }
-                ]
-            }
-            ]
-        },
-        """
-
-        return {
-            "type": "table",
-            "rows": rows,
-        }
+        return result
 
     def _extract_paragraph(self, paragraph: Paragraph):
         """
