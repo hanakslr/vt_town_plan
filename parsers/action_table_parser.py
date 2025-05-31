@@ -42,24 +42,38 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
     current_strategy = None
 
     # Regular expressions for identifying different components
-    objective_pattern = re.compile(r"^(\d+\.[A-Z])\s+(.+)$")
+    objective_label_pattern = re.compile(r"^(\d+\.[A-Z])")
     strategy_pattern = re.compile(r"^(\d+\.\d+)\s+(.+)$")
     action_pattern = re.compile(r"^(\d+\.\d+\.\d+)\s+(.+)$")
+
+    curr_section = None
 
     for row in rows:
         if not row:
             continue
 
-        cell_text = row[0] if len(row) > 0 else ""
-
-        # Check if this is an objective
-        objective_match = objective_pattern.match(cell_text)
-        if objective_match:
-            label = objective_match.group(1)
-            text = objective_match.group(2)
-            current_objective = {"label": label, "text": text}
-            result["objectives"].append(current_objective)
+        if row[0] == "Objectives, Strategies, and Actions":
             continue
+        if row[0] == "Objectives":
+            curr_section = "objectives"
+            continue
+        if row[0] == "Strategies":
+            curr_section = "strategies"
+            continue
+
+        cell_text = row[0] if len(row) > 0 else ""
+        print(row)
+
+        if curr_section == "objectives":
+            objective_label_match = objective_label_pattern.match(row[0])
+
+            # Check if this is an objective
+            if objective_label_match and len(row) == 2:
+                current_objective = {"label": row[0], "text": row[1]}
+                result["objectives"].append(current_objective)
+                continue
+            else:
+                raise Exception("Unexpected row in Objectives", row)
 
         # Check if this is a strategy
         strategy_match = strategy_pattern.match(cell_text)
@@ -97,5 +111,5 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
 
             current_strategy["actions"].append(action)
             continue
-
+    raise "stop"
     return result

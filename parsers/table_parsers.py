@@ -107,18 +107,28 @@ class BaseTableParser:
 
     def _extract_rows_and_styles(self):
         """Extract rows and styles from the table."""
-        for row in self.table.rows:
+        for row_idx, row in enumerate(self.table.rows):
             cols = []
-            for cell in row.cells:
+            for j, cell in enumerate(row.cells):
                 cell_id = id(cell._tc)
                 if cell_id in self.seen_cells:
                     continue
                 self.seen_cells.add(cell_id)
 
-                # For vertically merged cells, consider both origins and non-origins with content
+                # Handle merged cells
                 is_vertical_merge = self._is_merged_vertically(cell._tc)
+                is_horizontal_merge = self._is_merged_horizontally(cell._tc)
+                grid_span = self._get_grid_span(cell._tc) if is_horizontal_merge else 1
                 is_origin = self._is_merge_origin(cell._tc)
                 has_content = bool(cell.text.strip())
+
+                # Debug info for objectives
+                if cell.text.strip().startswith("5."):
+                    print(f"DEBUG: Found objective cell: '{cell.text.strip()}'")
+                    print(f"  Vertical merge: {is_vertical_merge}")
+                    print(f"  Horizontal merge: {is_horizontal_merge}")
+                    print(f"  Grid span: {grid_span}")
+                    print(f"  Is origin: {is_origin}")
 
                 # Skip cells that are continuations of a merge AND have no content
                 if is_vertical_merge and not is_origin and not has_content:
@@ -139,7 +149,35 @@ class BaseTableParser:
                 text = cell.text.strip() or list_num
 
                 if text:
-                    cols.append(text)
+                    # Detect if this cell contains an objective label (e.g., "5.A", "3.B", etc.)
+                    # Pattern: digit + dot + uppercase letter
+                    import re
+                    is_objective_label = bool(re.match(r'^\d+\.[A-Z]$', text.strip()))
+                    
+                    # Avoid adding duplicate text
+                    if text not in cols:
+                        # Handle objective label cells specially
+                        if is_objective_label:
+                            # This is an objective label, add it first
+                            cols.append(text)
+                            
+                            # Find the description in the next cell
+                            next_cell_idx = j + 1  # Use the actual cell index instead of column count
+                            if next_cell_idx < len(row.cells):
+                                next_cell = row.cells[next_cell_idx]
+                                next_text = next_cell.text.strip()
+                                if next_text and next_text not in cols:
+                                    # Add the description and mark the cell as seen
+                                    cols.append(next_text)
+                                    self.seen_cells.add(id(next_cell._tc))
+                        # Handle horizontally merged cells
+                        elif is_horizontal_merge:
+                            # Add the content of the merged cell
+                            cols.append(text)
+                        else:
+                            # Normal cell
+                            cols.append(text)
+
                     if style_info:
                         self.styles.append(style_info)
 
@@ -158,6 +196,13 @@ class BaseTableParser:
         """Check if a cell is merged horizontally."""
         gridSpan = tc.find(".//w:gridSpan", tc.nsmap)
         return gridSpan is not None
+
+    def _get_grid_span(self, tc):
+        """Get the grid span value for a horizontally merged cell."""
+        gridSpan = tc.find(".//w:gridSpan", tc.nsmap)
+        if gridSpan is not None:
+            return int(gridSpan.get(qn("w:val"), "1"))
+        return 1
 
     def _is_merge_origin(self, tc):
         """Check if a cell is the origin of a merge."""
@@ -370,6 +415,9 @@ class ActionTableParser(BaseTableParser):
         # Check for patterns that indicate this is an action table
         if not rows:
             return False
+
+        # if rows[0][0] == "Objectives, Strategies, and Actions":
+        #     return True
 
         # Look for patterns like "2.A", "2.1", "2.1.1" in the first column
         objective_pattern = re.compile(r"^\d+\.[A-Z]")
