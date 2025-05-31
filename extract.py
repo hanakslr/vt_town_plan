@@ -11,14 +11,14 @@ from zipfile import ZipFile
 
 import psycopg
 from docx import Document
-
-# Helper to preserve order of block-level elements
-from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml import etree
 from sentence_transformers import SentenceTransformer
+
+from parsers.facts_table_parser import parse_facts_table
+from parsers.goals_table_parser import parse_goals_table
 
 USE_PLACEHOLDER_IMAGES = True
 
@@ -83,12 +83,6 @@ class DocumentExtract:
         self.numId_to_abstractId, self.abstractId_to_levels = (
             parse_numbering_definitions(self.numbering_tree)
         )
-
-        print("abstractid to levels")
-        print(self.abstractId_to_levels)
-
-        print("numlevels to abstrract id")
-        print(self.numId_to_abstractId)
         self.list_counters = defaultdict(lambda: defaultdict(int))
 
     def extract(self):
@@ -192,8 +186,6 @@ class DocumentExtract:
         # Increment current level
         self.list_counters[numId][ilvl] += 1
 
-        print(self.list_counters)
-
         # Replace each %n with the formatted value from list_counters
         for n in range(1, 10):  # %1 to %9
             if f"%{n}" in label:
@@ -279,29 +271,18 @@ class DocumentExtract:
 
         # Is this actually the 2050 goals table?
         if rows and rows[0] and rows[0][0].startswith("Goals: In 2050"):
-            assert len(rows) == 7, (
-                f"Expected 7, found {len(rows[0])} - num rows {len(rows)}"
-            )
-            assert rows[1][0] == "Livable", f"Expected Livable, found {rows[1][0]}"
-            assert rows[3][0] == "Resilient", f"Expected Resilient, found {rows[3][0]}"
-            assert rows[5][0] == "Equitable", f"Expected Equitable, found {rows[5][0]}"
+            values = parse_goals_table(rows)
 
             return {
                 "type": "2050_goals",
                 "text": rows[0][0],
                 "section": self.current_section[0].text,
-                "values": {
-                    "livable": rows[2][0].strip(),
-                    "resilient": rows[4][0].strip(),
-                    "equitable": rows[6][0].strip(),
-                },
+                "values": values,
             }
 
         # Is this our 3 Facts table?
         if rows and rows[0] and rows[0][0].startswith("Three Things"):
-            assert len(rows) == 7, (
-                f"For 3 Facts Table - Expected 7, found {len(rows[0])} - num rows {len(rows)}"
-            )
+            facts = parse_facts_table(rows)
 
             return {
                 "type": "3_public_engagement_findings"
@@ -309,14 +290,36 @@ class DocumentExtract:
                 else "3_facts",
                 "text": rows[0][0],
                 "section": self.current_section[0].text,
-                "facts": [
-                    {"title": rows[1][0], "text": rows[2][0]},
-                    {"title": rows[3][0], "text": rows[4][0]},
-                    {"title": rows[5][0], "text": rows[6][0]},
-                ],
+                "facts": facts,
             }
 
         # Is this the objectives tables
+        """
+        {
+            "type": "action_table",
+            "section": "Arts and social infrastructure",
+            "objectives": [
+            {"label": "2.A", "text": "...."}
+            ],
+            "strategies": [
+            {
+                "label": "2.1",
+                "text": "...",
+                "actions": [
+                {
+                    "label": "2.1.1",
+                    "text": "...",
+                    "responsibility": "...",
+                    "time_frame": "...",
+                    "cost": "...",
+                    "starred": true,
+                    "multiple_strategies": true
+                }
+                ]
+            }
+            ]
+        },
+        """
 
         return {
             "type": "table",
@@ -346,7 +349,7 @@ class DocumentExtract:
                 "level": curr_heading.level,
                 "section": self.current_section[0].text,
             }
-        elif paragraph.style.name in ["Normal", "No Spacing"]:
+        elif paragraph.style.name in ["Normal", "No Spacing", "paragraph"]:
             return {
                 "type": "paragraph",
                 "paragraph_style": paragraph.style.name,
