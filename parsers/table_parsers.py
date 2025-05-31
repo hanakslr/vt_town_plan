@@ -506,7 +506,7 @@ class ActionTableParser(BaseTableParser):
 
         # Right now actions don't get their numbers until they are in the parser??
         # so after this. Not sure how strategies are getting their numbers now.
-        return strategy_count > 2 or action_count > 2 or objective_count > 2
+        return strategy_count >= 2 or action_count >= 2 or objective_count >= 2
 
 
 class TableParserFactory:

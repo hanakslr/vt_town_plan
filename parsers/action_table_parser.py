@@ -38,54 +38,46 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
         "strategies": [],
     }
 
-    current_objective = None
-    current_strategy = None
-
     # Regular expressions for identifying different components
-    objective_label_pattern = re.compile(r"^(\d+\.[A-Z])")
+    objective_label_pattern = re.compile(r"^(\d+\.[A-Z])$")
     strategy_label_pattern = re.compile(r"^(\d+\.\d+)$")
-    action_label_pattern = re.compile(r"^(\d+\.\d+\.\d+)$")
-
-    curr_section = None
+    action_label_pattern = re.compile(r"^((\d+\.\d+)\.\d+)$")
 
     for row in rows:
         if not row:
             continue
 
-        if row[0] == "Objectives, Strategies, and Actions":
-            continue
-        if row[0] == "Objectives":
-            curr_section = "objectives"
-            continue
-        if row[0] == "Strategies":
-            curr_section = "strategies"
+        # Title rows
+        if row[0] in [
+            "Objectives, Strategies, and Actions",
+            "Objectives",
+            "Strategies",
+        ]:
             continue
 
         cell_text = row[0] if len(row) > 0 else ""
-        print(row)
 
-        if curr_section == "objectives":
-            objective_label_match = objective_label_pattern.match(row[0])
+        objective_label_match = objective_label_pattern.match(row[0])
 
-            # Check if this is an objective
-            if objective_label_match and len(row) == 2:
-                current_objective = {"label": row[0], "text": row[1]}
-                result["objectives"].append(current_objective)
+        # Check if this is an objective
+        if objective_label_match:
+            if len(row) == 2:
+                result["objectives"].append({"label": row[0], "text": row[1]})
                 continue
             else:
                 raise Exception("Unexpected row in Objectives", row)
 
-        if curr_section == "strategies":
-            # Check if this is a strategy
-            strategy_match = strategy_label_pattern.match(cell_text)
-            if strategy_match:
-                current_strategy = {"label": row[0], "text": row[1], "actions": []}
-                result["strategies"].append(current_strategy)
-                continue
+        # Check if this is a strategy
+        strategy_match = strategy_label_pattern.match(cell_text)
+        if strategy_match:
+            result["strategies"].append(
+                {"label": row[0], "text": row[1], "actions": []}
+            )
+            continue
 
         # Check if this is an action
         action_match = action_label_pattern.match(cell_text)
-        if action_match and current_strategy:
+        if action_match:
             label = row[0]
             text = row[1]
 
@@ -112,7 +104,21 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
             if multiple_strategies:
                 action["multiple_strategies"] = True
 
-            current_strategy["actions"].append(action)
+            strategy_label_from_action = action_match.group(2)
+
+            # Find the related strategy. If it doesn't exist make a placeholder for it.
+            s = [
+                s
+                for s in result["strategies"]
+                if strategy_label_from_action == s["label"]
+            ]
+            if s:
+                s[0]["actions"].append(action)
+            else:
+                result["strategies"].append(
+                    {"label": strategy_label_from_action, "actions": [action]}
+                )
+
             continue
 
     return result
