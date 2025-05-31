@@ -210,6 +210,21 @@ class DocumentExtract:
 
         styles = []
 
+        def is_merged_vertically(tc):
+            vMerge = tc._element.find(".//w:vMerge", tc._element.nsmap)
+            if vMerge is not None:
+                val = vMerge.get(qn("w:val"))
+                return val == "continue" or val is None  # continuation
+            return False
+
+        def is_merge_origin(tc):
+            # Origin if not vertically merged or it starts the merge
+            vMerge = tc._element.find(".//w:vMerge", tc._element.nsmap)
+            return vMerge is None or vMerge.get(qn("w:val")) == "restart"
+
+        xml_str = etree.tostring(table._element, pretty_print=True, encoding="unicode")
+        print(xml_str)
+
         for row in table.rows:
             cols = []
             for cell in row.cells:
@@ -217,13 +232,14 @@ class DocumentExtract:
                 cell_id = id(cell._tc)
                 if cell_id in seen_cells:
                     continue
-                seen_cells.add(cell_id)
+                # seen_cells.add(cell_id)
 
                 list_num = None
                 style_info = None
                 for para in cell.paragraphs:
                     ### Try to get list ids
                     p = para._p
+
                     numPr = p.find(".//w:numPr", para._element.nsmap)
                     if numPr is not None:
                         ilvl_el = numPr.find("w:ilvl", para._element.nsmap)
@@ -249,6 +265,7 @@ class DocumentExtract:
                         }
 
                 text = cell.text.strip() or list_num
+
                 if text:
                     cols.append(text)
                     if style_info:
@@ -353,6 +370,12 @@ class DocumentExtract:
             return {
                 "type": "paragraph",
                 "paragraph_style": paragraph.style.name,
+                "text": paragraph.text.strip(),
+                "section_path": [s.text for s in self.current_section],
+            }
+        elif paragraph.style.name == "Caption":
+            return {
+                "type": "caption",
                 "text": paragraph.text.strip(),
                 "section_path": [s.text for s in self.current_section],
             }
