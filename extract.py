@@ -211,19 +211,23 @@ class DocumentExtract:
         styles = []
 
         def is_merged_vertically(tc):
-            vMerge = tc._element.find(".//w:vMerge", tc._element.nsmap)
+            vMerge = tc.find(".//w:vMerge", tc.nsmap)
             if vMerge is not None:
                 val = vMerge.get(qn("w:val"))
                 return val == "continue" or val is None  # continuation
             return False
 
+        # def is_merged_horizontally(tc):
+        #     gridSpan = tc.find(".//w:gridSpan", tc.nsmap)
+        #     return gridSpan is not None
+
         def is_merge_origin(tc):
             # Origin if not vertically merged or it starts the merge
-            vMerge = tc._element.find(".//w:vMerge", tc._element.nsmap)
+            vMerge = tc.find(".//w:vMerge", tc.nsmap)
             return vMerge is None or vMerge.get(qn("w:val")) == "restart"
 
-        xml_str = etree.tostring(table._element, pretty_print=True, encoding="unicode")
-        print(xml_str)
+        # xml_str = etree.tostring(table._element, pretty_print=True, encoding="unicode")
+        # print(xml_str)
 
         for row in table.rows:
             cols = []
@@ -232,7 +236,16 @@ class DocumentExtract:
                 cell_id = id(cell._tc)
                 if cell_id in seen_cells:
                     continue
-                # seen_cells.add(cell_id)
+                seen_cells.add(cell_id)
+
+                # For vertically merged cells, consider both origins and non-origins with content
+                is_vertical_merge = is_merged_vertically(cell._tc)
+                is_origin = is_merge_origin(cell._tc)
+                has_content = bool(cell.text.strip())
+
+                # Skip cells that are continuations of a merge AND have no content
+                if is_vertical_merge and not is_origin and not has_content:
+                    continue
 
                 list_num = None
                 style_info = None
