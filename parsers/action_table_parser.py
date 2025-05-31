@@ -43,8 +43,8 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
 
     # Regular expressions for identifying different components
     objective_label_pattern = re.compile(r"^(\d+\.[A-Z])")
-    strategy_pattern = re.compile(r"^(\d+\.\d+)\s+(.+)$")
-    action_pattern = re.compile(r"^(\d+\.\d+\.\d+)\s+(.+)$")
+    strategy_label_pattern = re.compile(r"^(\d+\.\d+)$")
+    action_label_pattern = re.compile(r"^(\d+\.\d+\.\d+)$")
 
     curr_section = None
 
@@ -75,25 +75,24 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
             else:
                 raise Exception("Unexpected row in Objectives", row)
 
-        # Check if this is a strategy
-        strategy_match = strategy_pattern.match(cell_text)
-        if strategy_match:
-            label = strategy_match.group(1)
-            text = strategy_match.group(2)
-            current_strategy = {"label": label, "text": text, "actions": []}
-            result["strategies"].append(current_strategy)
-            continue
+        if curr_section == "strategies":
+            # Check if this is a strategy
+            strategy_match = strategy_label_pattern.match(cell_text)
+            if strategy_match:
+                current_strategy = {"label": row[0], "text": row[1], "actions": []}
+                result["strategies"].append(current_strategy)
+                continue
 
         # Check if this is an action
-        action_match = action_pattern.match(cell_text)
+        action_match = action_label_pattern.match(cell_text)
         if action_match and current_strategy:
-            label = action_match.group(1)
-            text = action_match.group(2)
+            label = row[0]
+            text = row[1]
 
             # Extract additional fields if available
-            responsibility = row[1] if len(row) > 1 else ""
-            time_frame = row[2] if len(row) > 2 else ""
-            cost = row[3] if len(row) > 3 else ""
+            responsibility = row[2] if len(row) > 2 else ""
+            time_frame = row[3] if len(row) > 3 else ""
+            cost = row[4] if len(row) > 4 else ""
 
             # Check for special markers
             starred = "★" in cell_text or "*" in cell_text
@@ -105,11 +104,15 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
                 "responsibility": responsibility,
                 "time_frame": time_frame,
                 "cost": cost,
-                "starred": starred,
-                "multiple_strategies": multiple_strategies,
             }
+
+            if starred:
+                action["starred"] = True
+
+            if multiple_strategies:
+                action["multiple_strategies"] = True
 
             current_strategy["actions"].append(action)
             continue
-    raise "stop"
+
     return result

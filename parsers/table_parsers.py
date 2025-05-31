@@ -152,17 +152,20 @@ class BaseTableParser:
                     # Detect if this cell contains an objective label (e.g., "5.A", "3.B", etc.)
                     # Pattern: digit + dot + uppercase letter
                     import re
-                    is_objective_label = bool(re.match(r'^\d+\.[A-Z]$', text.strip()))
-                    
+
+                    is_objective_label = bool(re.match(r"^\d+\.[A-Z]$", text.strip()))
+
                     # Avoid adding duplicate text
                     if text not in cols:
                         # Handle objective label cells specially
                         if is_objective_label:
                             # This is an objective label, add it first
                             cols.append(text)
-                            
+
                             # Find the description in the next cell
-                            next_cell_idx = j + 1  # Use the actual cell index instead of column count
+                            next_cell_idx = (
+                                j + 1
+                            )  # Use the actual cell index instead of column count
                             if next_cell_idx < len(row.cells):
                                 next_cell = row.cells[next_cell_idx]
                                 next_text = next_cell.text.strip()
@@ -280,7 +283,7 @@ class ChapterHeaderParser(BaseTableParser):
             "type": "heading",
             "level": 1,
             "text": self.rows[0][1],
-            "chaper_number": self.rows[0][0],
+            "chapter_number": self.rows[0][0],
         }
 
     @classmethod
@@ -416,8 +419,8 @@ class ActionTableParser(BaseTableParser):
         if not rows:
             return False
 
-        # if rows[0][0] == "Objectives, Strategies, and Actions":
-        #     return True
+        if rows[0][0] == "Objectives, Strategies, and Actions":
+            return True
 
         # Look for patterns like "2.A", "2.1", "2.1.1" in the first column
         objective_pattern = re.compile(r"^\d+\.[A-Z]")

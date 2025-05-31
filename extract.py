@@ -224,6 +224,46 @@ class DocumentExtract:
         styles = []
         seen_cells = set()
 
+        # Debug tables with potential objectives content
+        first_cell_text = ""
+        if table.rows and table.rows[0].cells:
+            first_cell_text = table.rows[0].cells[0].text.strip()
+
+        # Check if this looks like an objectives table or contains objectives
+        if first_cell_text == "Objectives" or any(
+            cell.text.strip().startswith("5.")
+            for row in table.rows
+            for cell in row.cells
+        ):
+            # Print detailed cell information
+            print("\n--- CELL DETAILS ---")
+            for i, row in enumerate(table.rows):
+                print(f"Row {i}:")
+                for j, cell in enumerate(row.cells):
+                    print(f"  Cell {j}: Text='{cell.text.strip()}'")
+
+                    # Check for merged cells
+                    vmerge = cell._tc.find(".//w:vMerge", cell._tc.nsmap)
+                    is_vertical_merge = vmerge is not None
+                    vmerge_val = vmerge.get(qn("w:val")) if vmerge is not None else None
+                    is_origin = vmerge_val == "restart" or vmerge is None
+
+                    gridspan = cell._tc.find(".//w:gridSpan", cell._tc.nsmap)
+                    gridspan_val = (
+                        gridspan.get(qn("w:val")) if gridspan is not None else None
+                    )
+
+                    print(f"    Vertically merged: {is_vertical_merge}")
+                    print(f"    Merge origin: {is_origin}")
+                    print(f"    vMerge value: {vmerge_val}")
+                    print(f"    Grid span: {gridspan_val}")
+
+                    # Look for content in paragraphs
+                    print(f"    Paragraphs: {len(cell.paragraphs)}")
+                    for p_idx, para in enumerate(cell.paragraphs):
+                        print(f"      Paragraph {p_idx}: '{para.text}'")
+            print("===================================\n\n")
+
         # Extract basic rows and styles to identify table type
         for row in table.rows:
             cols = []
