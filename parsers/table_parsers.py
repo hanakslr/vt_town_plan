@@ -2,13 +2,12 @@
 Table parsers for different types of tables in the document.
 """
 
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Dict, List, Optional, Tuple, Any, ClassVar, Type
-from dataclasses import dataclass, field
+from typing import Any, ClassVar, Dict, List, Optional
 
 from docx.oxml.ns import qn
 from docx.table import Table
-from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 
@@ -341,7 +340,12 @@ class ChapterHeaderParser(BaseTableParser):
 
     def _create_output(self) -> Dict:
         """Create output for chapter header table."""
-        return {"type": "heading", "level": 1, "text": self.rows[0][1]}
+        return {
+            "type": "heading",
+            "level": 1,
+            "text": self.rows[0][1],
+            "chapter_number": self.rows[0][0],
+        }
 
     @classmethod
     def can_parse(
