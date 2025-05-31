@@ -106,86 +106,147 @@ class BaseTableParser:
         return self._create_output()
 
     def _extract_rows_and_styles(self):
-        """Extract rows and styles from the table."""
-        for row_idx, row in enumerate(self.table.rows):
-            cols = []
-            for j, cell in enumerate(row.cells):
-                cell_id = id(cell._tc)
-                if cell_id in self.seen_cells:
-                    continue
-                self.seen_cells.add(cell_id)
+        """
+        Extract rows and styles from the table using a two-pass approach for more robustness.
+        """
+        # First pass: collect all cell information without any filtering
+        # This ensures we have complete information before making decisions
+        raw_rows = []
 
-                # Handle merged cells
+        for row in self.table.rows:
+            raw_cells = []
+            for cell in row.cells:
+                # Check for merged cells
                 is_vertical_merge = self._is_merged_vertically(cell._tc)
                 is_horizontal_merge = self._is_merged_horizontally(cell._tc)
                 grid_span = self._get_grid_span(cell._tc) if is_horizontal_merge else 1
                 is_origin = self._is_merge_origin(cell._tc)
-                has_content = bool(cell.text.strip())
 
-                # Debug info for objectives
-                if cell.text.strip().startswith("5."):
-                    print(f"DEBUG: Found objective cell: '{cell.text.strip()}'")
-                    print(f"  Vertical merge: {is_vertical_merge}")
-                    print(f"  Horizontal merge: {is_horizontal_merge}")
-                    print(f"  Grid span: {grid_span}")
-                    print(f"  Is origin: {is_origin}")
-
-                # Skip cells that are continuations of a merge AND have no content
-                if is_vertical_merge and not is_origin and not has_content:
-                    continue
-
+                # Get text content
+                text = cell.text.strip()
                 list_num = None
-                style_info = None
 
-                # Process paragraphs in the cell
+                # Get style information
+                style_info = None
                 for para in cell.paragraphs:
                     # Extract list numbers if applicable
                     if self.list_number_generator:
                         list_num = self._extract_list_number(para)
-
-                    # Extract style information
-                    style_info = self._extract_style_info(para)
-
-                text = cell.text.strip() or list_num
-
-                if text:
-                    # Detect if this cell contains an objective label (e.g., "5.A", "3.B", etc.)
-                    # Pattern: digit + dot + uppercase letter
-                    import re
-
-                    is_objective_label = bool(re.match(r"^\d+\.[A-Z]$", text.strip()))
-
-                    # Avoid adding duplicate text
-                    if text not in cols:
-                        # Handle objective label cells specially
-                        if is_objective_label:
-                            # This is an objective label, add it first
-                            cols.append(text)
-
-                            # Find the description in the next cell
-                            next_cell_idx = (
-                                j + 1
-                            )  # Use the actual cell index instead of column count
-                            if next_cell_idx < len(row.cells):
-                                next_cell = row.cells[next_cell_idx]
-                                next_text = next_cell.text.strip()
-                                if next_text and next_text not in cols:
-                                    # Add the description and mark the cell as seen
-                                    cols.append(next_text)
-                                    self.seen_cells.add(id(next_cell._tc))
-                        # Handle horizontally merged cells
-                        elif is_horizontal_merge:
-                            # Add the content of the merged cell
-                            cols.append(text)
-                        else:
-                            # Normal cell
-                            cols.append(text)
-
+                    for run in para.runs:
+                        font = run.font
+                        style_info = TableStyles(
+                            text=run.text,
+                            font_name=font.name,
+                            font_size=font.size.pt if font.size else None,
+                            bold=font.bold,
+                            italic=font.italic,
+                        )
+                        break
                     if style_info:
-                        self.styles.append(style_info)
+                        break
 
+                # Store all information for this cell
+                raw_cells.append(
+                    {
+                        "cell": cell,
+                        "text": text or list_num,
+                        "style": style_info,
+                        "cell_id": id(cell._tc),
+                        "is_vertical_merge": is_vertical_merge,
+                        "is_horizontal_merge": is_horizontal_merge,
+                        "grid_span": grid_span,
+                        "is_origin": is_origin,
+                    }
+                )
+
+                # if (
+                #     "Develop a communication schedule to proactively share data, such"
+                #     in text
+                # ):
+                #     print(raw_cells)
+                #     for cell_dict in raw_cells:
+                #         cell = cell_dict["cell"]
+                #         xml = (
+                #             cell._tc
+                #         )  # _tc is the lxml element representing the <w:tc> tag
+                #         print(
+                #             etree.tostring(xml, pretty_print=True, encoding="unicode")
+                #         )
+
+                #     raise "stop"
+
+            raw_rows.append(raw_cells)
+
+        # Second pass: process rows with full contextual information
+        # Since we have all the info up front, we can make better decisions
+        for row_idx, row_cells in enumerate(raw_rows):
+            cols = []
+            seen_in_this_row = set()  # Track processed cells in this row only
+
+            # Process each cell in the row
+            for cell_idx, cell_info in enumerate(row_cells):
+                # Skip if already processed in this row
+                if cell_info["cell_id"] in seen_in_this_row:
+                    continue
+
+                seen_in_this_row.add(cell_info["cell_id"])
+
+                # Skip cells that are continuations of vertical merges and have no content
+                if (
+                    cell_info["is_vertical_merge"]
+                    and not cell_info["is_origin"]
+                    and not cell_info["text"]
+                ):
+                    continue
+
+                text = cell_info["text"]
+                if not text:
+                    continue
+
+                # # Important: For the first cell in a row, check if it might be a label
+                # # with a description in the next cell
+                # if cell_idx == 0 and len(row_cells) > 1:
+                #     # Try to detect if this is a label-description pattern
+                #     # Typically, labels are short and in the first column
+                #     is_label = len(text) <= 8  # Generous limit for a label
+
+                #     if is_label:
+                #         # Add the label first
+                #         cols.append(text)
+
+                #         # Look for description in the next cell
+                #         if cell_idx + 1 < len(row_cells):
+                #             next_cell = row_cells[cell_idx + 1]
+                #             if next_cell["text"] and next_cell["text"] not in cols:
+                #                 # Add the description
+                #                 cols.append(next_cell["text"])
+                #                 # Mark as processed
+                #                 seen_in_this_row.add(next_cell["cell_id"])
+
+                #                 # Also add to the overall seen cells
+                #                 self.seen_cells.add(next_cell["cell_id"])
+
+                #         # Save style info
+                #         if cell_info["style"]:
+                #             self.styles.append(cell_info["style"])
+
+                #         continue  # Move to the next unprocessed cell
+
+                # For other cells, just add the text if not a duplicate
+                if text not in cols:
+                    cols.append(text)
+
+                # Save style info
+                if cell_info["style"]:
+                    self.styles.append(cell_info["style"])
+
+            # Add the processed row if it has content
             if cols:
                 self.rows.append(cols)
+
+            # Add all cell IDs to the overall seen set to avoid reprocessing
+            for cell_info in row_cells:
+                self.seen_cells.add(cell_info["cell_id"])
 
     def _is_merged_vertically(self, tc):
         """Check if a cell is merged vertically."""
@@ -214,6 +275,9 @@ class BaseTableParser:
 
     def _extract_list_number(self, para: Paragraph) -> Optional[str]:
         """Extract list number from paragraph if present."""
+        if not self.list_number_generator:
+            return None
+
         p = para._p
         numPr = p.find(".//w:numPr", para._element.nsmap)
         if numPr is not None:
@@ -243,10 +307,7 @@ class BaseTableParser:
         return None
 
     def _create_output(self) -> Dict:
-        """
-        Create output dictionary from parsed data. This is the base class implementation.
-        Tables with special handling are done so in the approriate child class.
-        """
+        """Create output dictionary from parsed data."""
         result = {
             "type": "table",
             "rows": self.rows,
@@ -279,12 +340,7 @@ class ChapterHeaderParser(BaseTableParser):
 
     def _create_output(self) -> Dict:
         """Create output for chapter header table."""
-        return {
-            "type": "heading",
-            "level": 1,
-            "text": self.rows[0][1],
-            "chapter_number": self.rows[0][0],
-        }
+        return {"type": "heading", "level": 1, "text": self.rows[0][1]}
 
     @classmethod
     def can_parse(
@@ -447,9 +503,10 @@ class ActionTableParser(BaseTableParser):
 
         # If we have at least one of each pattern, or a significant number of actions
         # and strategies, this is likely an action table
-        return (objective_count > 0 and strategy_count > 0 and action_count > 0) or (
-            strategy_count >= 2 and action_count >= 3
-        )
+
+        # Right now actions don't get their numbers until they are in the parser??
+        # so after this. Not sure how strategies are getting their numbers now.
+        return strategy_count > 2 or action_count > 2 or objective_count > 2
 
 
 class TableParserFactory:
