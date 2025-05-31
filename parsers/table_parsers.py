@@ -2,12 +2,13 @@
 Table parsers for different types of tables in the document.
 """
 
-from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Any, ClassVar, Type
+from dataclasses import dataclass, field
 
 from docx.oxml.ns import qn
 from docx.table import Table
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 
@@ -552,8 +553,29 @@ class TableMerger:
 
     @staticmethod
     def should_merge(prev_table: Dict, current_table: Dict) -> bool:
-        """Determine if two tables should be merged."""
-        # Tables must both be generic tables
+        """
+        Determine if two tables should be merged.
+
+        Tables will be merged if:
+        1. They are both action tables (special case)
+        2. OR they are both regular tables with matching structure and styles
+        """
+        # Special case: If both are action tables, they should be merged
+        if (
+            prev_table.get("type") == "action_table"
+            and current_table.get("type") == "action_table"
+        ):
+            # Check if they're from the same section - don't merge action tables from different sections
+            prev_section = prev_table.get("section", "")
+            curr_section = current_table.get("section", "")
+
+            # If sections are specified and different, don't merge
+            if prev_section and curr_section and prev_section != curr_section:
+                return False
+
+            return True
+
+        # Regular case: Generic tables
         if prev_table.get("type") != "table" or current_table.get("type") != "table":
             return False
 
@@ -592,7 +614,20 @@ class TableMerger:
 
     @staticmethod
     def merge_tables(prev_table: Dict, current_table: Dict) -> Dict:
-        """Merge two tables."""
+        """
+        Merge two tables.
+
+        Handles special case for action tables by performing a deep merge.
+        For regular tables, just combines the rows.
+        """
+        # Special case for action tables
+        if (
+            prev_table.get("type") == "action_table"
+            and current_table.get("type") == "action_table"
+        ):
+            return TableMerger._merge_action_tables(prev_table, current_table)
+
+        # Regular case for generic tables
         merged_rows = prev_table.get("rows", []) + current_table.get("rows", [])
 
         # Create merged result
@@ -605,5 +640,52 @@ class TableMerger:
         for key in prev_table:
             if key not in ["type", "rows"] and key not in result:
                 result[key] = prev_table[key]
+
+        return result
+
+    @staticmethod
+    def _merge_action_tables(prev_table: Dict, current_table: Dict) -> Dict:
+        """
+        Deep merge for action tables, properly handling nested structures like
+        objectives and strategies.
+        """
+
+        # Helper to check if an item is already in the list based on a key field
+        def is_duplicate(item, item_list, key="label"):
+            return any(existing.get(key) == item.get(key) for existing in item_list)
+
+        # Combine objectives from both tables
+        prev_objectives = prev_table.get("objectives", [])
+        curr_objectives = current_table.get("objectives", [])
+
+        merged_objectives = prev_objectives.copy()
+
+        # Add non-duplicate objectives from the second table
+        for obj in curr_objectives:
+            if not is_duplicate(obj, merged_objectives):
+                merged_objectives.append(obj)
+
+        # Start with the first strategies
+        merged_strategies = prev_table.get("strategies", [])
+
+        # Process strategies and their nested actions
+        for strat in current_table.get("strategies", []):
+            # Check if this strategy exists in the previous
+            existing_s = [s for s in merged_strategies if s["label"] == strat["label"]]
+
+            if existing_s:
+                # The strategy, and likely its label exist aready - we need to take our
+                # new strats actions and append them
+                existing_s[0]["actions"].append(strat["actions"])
+            else:
+                merged_strategies.append(strat)
+
+        # Create the merged action table
+        result = {
+            "type": "action_table",
+            "section": prev_table.get("section", ""),  # Keep section from first table
+            "objectives": merged_objectives,
+            "strategies": merged_strategies,
+        }
 
         return result

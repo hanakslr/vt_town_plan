@@ -96,24 +96,28 @@ class DocumentExtract:
                 data = self._extract_paragraph(block)
                 if data and data["text"]:  # Skip empty paragraphs
                     elements.append(data)
-                    previous_table = None  # Reset previous table after a paragraph
+                    # We keep previous_table even after paragraphs now, to allow merging
+                    # action tables that might be separated by explanatory paragraphs
 
             elif isinstance(block, Table):
                 data = self._extract_table(block)
                 if data:
-                    # If this is a table and we had a previous table, check if they should be merged
-                    if (
-                        data.get("type") == "table"
-                        and previous_table
-                        and previous_table.get("type") == "table"
-                        and TableMerger.should_merge(previous_table, data)
-                    ):
+                    # Check if we should merge with a previous table
+                    # This handles both regular tables and action tables now
+                    if (previous_table and 
+                        TableMerger.should_merge(previous_table, data)):
+                        
                         # Merge with previous table instead of adding a new one
                         previous_table = TableMerger.merge_tables(previous_table, data)
-                        # Replace the last element with the merged table
-                        if elements:
-                            elements[-1] = previous_table
+                        
+                        # Replace the last element with the merged table if it's there
+                        # We need to find the last occurrence of the previous table type
+                        for i in range(len(elements) - 1, -1, -1):
+                            if elements[i].get("type") == previous_table.get("type"):
+                                elements[i] = previous_table
+                                break
                     else:
+                        # Add as a new element
                         elements.append(data)
                         previous_table = data
             else:
