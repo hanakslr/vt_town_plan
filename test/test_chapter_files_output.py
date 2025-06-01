@@ -124,3 +124,139 @@ def test_has_public_engagement(extracted_file_data):
     for f in engagement_block["facts"]:
         assert list(f.keys()) == ["title", "text"]
         assert f["title"] and f["text"]
+
+
+def test_actions_table(extracted_file_data):
+    """
+    Check the format of the objectives/strategies/actions table.
+    """
+    action_block = [
+        elem for elem in extracted_file_data if elem["type"] == "action_table"
+    ]
+
+    assert len(action_block) == 1
+
+    action_block = action_block[0]
+
+    assert action_block["section"]
+
+    chapter_block = [
+        elem
+        for elem in extracted_file_data
+        if elem["type"] == "heading" and elem["level"] == 1
+    ][0]
+    chapter_number = chapter_block["chapter_number"]
+
+    ## Objectives
+    # Each objective should have a label and text. The labels and text should go in order.
+    assert "objectives" in action_block, "Action block missing objectives"
+    objectives = action_block["objectives"]
+    assert len(objectives) > 0, "No objectives found"
+
+    # Check each objective has required fields and correct format
+    for i, obj in enumerate(objectives):
+        assert list(obj.keys()) == ["label", "text"], (
+            f"Objective {i} has unexpected fields"
+        )
+        assert obj["label"], f"Objective {i} missing label"
+        assert obj["text"], f"Objective {i} missing text"
+
+        # Check label format matches chapter number (e.g. "9.A", "9.B", etc.)
+        assert re.match(rf"^{chapter_number}\.[A-Z]$", obj["label"]), (
+            f"Objective {i} label {obj['label']} doesn't match expected format {chapter_number}.X"
+        )
+
+        # Check text starts with a letter
+        assert re.match(r"^[a-zA-Z]", obj["text"]), (
+            f"Objective {i} text should start with a letter"
+        )
+
+    # Check objectives are in order
+    for i in range(len(objectives) - 1):
+        curr_label = objectives[i]["label"]
+        next_label = objectives[i + 1]["label"]
+        assert curr_label < next_label, (
+            f"Objectives out of order: {curr_label} before {next_label}"
+        )
+
+    ## Strategies & Actions
+    def parse_label(label):
+        """Convert a label like '12.2.10' into a tuple of integers (12, 2, 10) for proper numeric comparison."""
+        return tuple(int(x) for x in label.split("."))
+
+    assert "strategies" in action_block, "Action block missing strategies"
+    strategies = action_block["strategies"]
+    assert len(strategies) > 0, "No strategies found"
+
+    # Check each strategy has required fields and correct format
+    for i, strategy in enumerate(strategies):
+        assert list(strategy.keys()) == ["label", "text", "actions"], (
+            f"Strategy {i} has unexpected fields"
+        )
+        assert strategy["label"], f"Strategy {i} missing label"
+        assert strategy["text"], f"Strategy {i} missing text"
+        assert isinstance(strategy["actions"], list), (
+            f"Strategy {i} actions should be a list"
+        )
+
+        # Check label format matches chapter number (e.g. "9.1", "9.2", etc.)
+        assert re.match(rf"^{chapter_number}\.\d+$", strategy["label"]), (
+            f"Strategy {i} label {strategy['label']} doesn't match expected format {chapter_number}.X"
+        )
+
+        # Check text starts with a letter
+        assert re.match(r"^[a-zA-Z]", strategy["text"]), (
+            f"Strategy {i} text should start with a letter"
+        )
+
+        # Check actions for this strategy
+        actions = strategy["actions"]
+        assert len(actions) > 0, f"Strategy {strategy['label']} has no actions"
+
+        for j, action in enumerate(actions):
+            # Check required fields
+            required_fields = ["label", "text", "responsibility", "time_frame", "cost"]
+            assert all(field in action for field in required_fields), (
+                f"Action {j} in strategy {strategy['label']} missing required fields"
+            )
+            assert all(action[field] for field in required_fields), (
+                f"Action {j} in strategy {strategy['label']} has empty required fields"
+            )
+
+            # Check action label format (e.g. "9.1.1", "9.1.2", etc.)
+            strategy_label = strategy["label"]
+            assert re.match(rf"^{strategy_label}\.\d+$", action["label"]), (
+                f"Action {j} label {action['label']} doesn't match strategy {strategy_label}"
+            )
+
+            # Check text starts with a letter
+            assert re.match(r"^[a-zA-Z]", action["text"]), (
+                f"Action {j} in strategy {strategy['label']} text should start with a letter"
+            )
+
+            # Check optional fields if present
+            if "starred" in action:
+                assert isinstance(action["starred"], bool), (
+                    "starred field should be boolean"
+                )
+            if "multiple_strategies" in action:
+                assert isinstance(action["multiple_strategies"], bool), (
+                    "multiple_strategies field should be boolean"
+                )
+
+    # Check strategies are in order
+    for i in range(len(strategies) - 1):
+        curr_label = strategies[i]["label"]
+        next_label = strategies[i + 1]["label"]
+        assert parse_label(curr_label) < parse_label(next_label), (
+            f"Strategies out of order: {curr_label} before {next_label}"
+        )
+
+        # Check actions are in order within each strategy
+        actions = strategy["actions"]
+        for j in range(len(actions) - 1):
+            curr_label = actions[j]["label"]
+            next_label = actions[j + 1]["label"]
+            assert parse_label(curr_label) < parse_label(next_label), (
+                f"Actions out of order in strategy {strategy['label']}: {curr_label} before {next_label}"
+            )
