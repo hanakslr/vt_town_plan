@@ -1,6 +1,6 @@
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 import pytest
 
@@ -78,3 +78,49 @@ def test_chapter_has_2050_goals(extracted_file_data):
 
     for text in goals_block["values"].values():
         assert re.match(r"^[a-zA-Z]", text), f"Expected {text} to start with a letter"
+
+
+def test_has_3_facts(extracted_file_data):
+    """
+    Check the chapter has a properly formatted 3 facts block
+    """
+    facts_block = [elem for elem in extracted_file_data if elem["type"] == "3_facts"]
+
+    assert len(facts_block) == 1, (
+        f"Expected to find 1 facts block but found {len(facts_block)}"
+    )
+
+    facts_block = facts_block[0]
+    assert facts_block["section"], "Expected to find section"
+    assert facts_block["text"] == "Three Things to Know"
+
+    assert len(facts_block["facts"]) == 3
+
+    for f in facts_block["facts"]:
+        assert list(f.keys()) == ["title", "text"]
+        assert f["title"] and f["text"]
+
+
+def test_has_public_engagement(extracted_file_data):
+    """
+    Check the chapter has a properly formatted public engagement block
+    """
+    engagement_block = [
+        elem
+        for elem in extracted_file_data
+        if elem["type"] == "3_public_engagement_findings"
+    ]
+
+    assert len(engagement_block) == 1, (
+        f"Expected to find 1 public engagement block but found {len(engagement_block)}"
+    )
+
+    engagement_block = engagement_block[0]
+    assert engagement_block["section"], "Expected to find section"
+    assert engagement_block["text"] == "Three Things Public Engagement Told Us"
+
+    assert len(engagement_block["facts"]) == 3
+
+    for f in engagement_block["facts"]:
+        assert list(f.keys()) == ["title", "text"]
+        assert f["title"] and f["text"]
