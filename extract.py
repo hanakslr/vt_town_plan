@@ -104,12 +104,12 @@ class DocumentExtract:
                 if data:
                     # Check if we should merge with a previous table
                     # This handles both regular tables and action tables now
-                    if (previous_table and 
-                        TableMerger.should_merge(previous_table, data)):
-                        
+                    if previous_table and TableMerger.should_merge(
+                        previous_table, data
+                    ):
                         # Merge with previous table instead of adding a new one
                         previous_table = TableMerger.merge_tables(previous_table, data)
-                        
+
                         # Replace the last element with the merged table if it's there
                         # We need to find the last occurrence of the previous table type
                         for i in range(len(elements) - 1, -1, -1):
@@ -360,6 +360,12 @@ class DocumentExtract:
                 "text": curr_heading.text,
                 "level": curr_heading.level,
                 "section": self.current_section[0].text,
+            }
+        elif paragraph.style.name == "List Paragraph":
+            return {
+                "type": "list_paragraph",
+                "text": paragraph.text.strip(),
+                "section_path": [s.text for s in self.current_section],
             }
         elif paragraph.style.name in ["Normal", "No Spacing", "paragraph"]:
             return {
