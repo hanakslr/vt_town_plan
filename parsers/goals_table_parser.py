@@ -2,6 +2,8 @@
 Parsing for the Williston 2050 Goals tables
 """
 
+import re
+
 
 def parse_goals_table(table: list[list]):
     assert table[0][0].startswith("Goals: In 2050")
@@ -18,5 +20,18 @@ def parse_goals_table(table: list[list]):
                 "equitable": table[6][0].strip(),
             },
         )
+    if len(table) == 4:
+        values = ["Livable", "Resilient", "Equitable"]
+        result = {}
+        for i, value in enumerate(values):
+            pattern = re.compile(rf"^{value}\s*\n(.*)", re.DOTALL)
+            match = pattern.match(table[i + 1][0])
+            assert match, (
+                f"Expected {value} followed by description, found {table[i + 1][0]}.\nTable: {table}"
+            )
+            result[value.lower()] = match.group(1).strip()
+
+        return result
+
     else:
         raise Exception("Unexpected Goals Table format", table)

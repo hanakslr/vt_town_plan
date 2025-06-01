@@ -78,6 +78,7 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
         # Check if this is an action
         action_match = action_label_pattern.match(cell_text)
         if action_match:
+            assert len(row) >= 2, f"expected row to have label and text {row}"
             label = row[0]
             text = row[1]
 
