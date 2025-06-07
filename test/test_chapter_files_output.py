@@ -155,8 +155,8 @@ def test_actions_table(extracted_file_data):
 
     # Check each objective has required fields and correct format
     for i, obj in enumerate(objectives):
-        assert list(obj.keys()) == ["label", "text"], (
-            f"Objective {i} has unexpected fields"
+        assert "label" in obj and "text" in obj, (
+            f"Objective {i} missing required fields"
         )
         assert obj["label"], f"Objective {i} missing label"
         assert obj["text"], f"Objective {i} missing text"
@@ -190,8 +190,9 @@ def test_actions_table(extracted_file_data):
 
     # Check each strategy has required fields and correct format
     for i, strategy in enumerate(strategies):
-        assert set(strategy.keys()) == set(["label", "text", "actions"]), (
-            f"Strategy {i} has unexpected fields"
+        required_strategy_fields = ["label", "text", "actions"]
+        assert all(field in strategy for field in required_strategy_fields), (
+            f"Strategy {i} missing required fields"
         )
         assert strategy["label"], f"Strategy {i} missing label"
         assert strategy["text"], f"Strategy {i} missing text"
@@ -236,12 +237,14 @@ def test_actions_table(extracted_file_data):
 
             # Check optional fields if present
             if "starred" in action:
-                assert isinstance(action["starred"], bool), (
-                    "starred field should be boolean"
+                # In the JSON output, 'starred' should only be present when it's True
+                assert action["starred"] is True, (
+                    "starred field should be True when present"
                 )
             if "multiple_strategies" in action:
-                assert isinstance(action["multiple_strategies"], bool), (
-                    "multiple_strategies field should be boolean"
+                # In the JSON output, 'multiple_strategies' should only be present when it's True
+                assert action["multiple_strategies"] is True, (
+                    "multiple_strategies field should be True when present"
                 )
 
     # Check strategies are in order

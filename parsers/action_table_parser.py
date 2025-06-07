@@ -5,8 +5,10 @@ Parser for action tables in the document.
 import re
 from typing import Dict, List
 
+from models import Action, Objective, Strategy
 
-def parse_action_table(rows: List[List[str]]) -> Dict:
+
+def parse_action_table(rows: List[List[str]]) -> Dict[str, List]:
     """
     Parse an action table into a structured format.
 
@@ -17,20 +19,8 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
 
     Returns a dictionary with:
     {
-        "objectives": [{label, text}, ...],
-        "strategies": [{
-            label,
-            text,
-            actions: [{
-                label,
-                text,
-                responsibility,
-                time_frame,
-                cost,
-                starred,
-                multiple_strategies
-            }, ...]
-        }, ...]
+        "objectives": [Objective objects],
+        "strategies": [Strategy objects with nested Action objects]
     }
     """
     result = {
@@ -62,7 +52,7 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
         # Check if this is an objective
         if objective_label_match:
             if len(row) == 2:
-                result["objectives"].append({"label": row[0], "text": row[1]})
+                result["objectives"].append(Objective(label=row[0], text=row[1]))
                 continue
             else:
                 raise Exception("Unexpected row in Objectives", row)
@@ -71,16 +61,17 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
         strategy_match = strategy_label_pattern.match(cell_text)
         if strategy_match:
             # Check to see if there is already a strategy
-            existing_strat = [s for s in result["strategies"] if s["label"] == row[0]]
+            existing_strat = [s for s in result["strategies"] if s.label == row[0]]
 
             if existing_strat:
                 # If we have an existing strategy, we have a label and maybe actions,
                 # but maybe we don't have text
                 existing_strat = existing_strat[0]
-                existing_strat["text"] = existing_strat.get("text", None) or row[1]
+                if not existing_strat.text and len(row) > 1:
+                    existing_strat.text = row[1]
             else:
                 result["strategies"].append(
-                    {"label": row[0], "text": row[1], "actions": []}
+                    Strategy(label=row[0], text=row[1], actions=[])
                 )
             continue
 
@@ -100,7 +91,8 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
             starred = "★" in cell_text or "*" in cell_text
             multiple_strategies = "†" in cell_text or "†" in cell_text
 
-            action = {
+            # Create Action object with None for optional fields by default
+            action_kwargs = {
                 "label": label,
                 "text": text,
                 "responsibility": responsibility,
@@ -108,25 +100,28 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
                 "cost": cost,
             }
 
+            # Only set these fields to True if they're present, otherwise leave as None
+            # They'll be omitted from the JSON output when they're None or False
             if starred:
-                action["starred"] = True
+                action_kwargs["starred"] = True
 
             if multiple_strategies:
-                action["multiple_strategies"] = True
+                action_kwargs["multiple_strategies"] = True
 
+            action = Action(**action_kwargs)
             strategy_label_from_action = action_match.group(2)
 
             # Find the related strategy. If it doesn't exist make a placeholder for it.
             s = [
-                s
-                for s in result["strategies"]
-                if strategy_label_from_action == s["label"]
+                s for s in result["strategies"] if strategy_label_from_action == s.label
             ]
             if s:
-                s[0]["actions"].append(action)
+                s[0].actions.append(action)
             else:
                 result["strategies"].append(
-                    {"label": strategy_label_from_action, "actions": [action]}
+                    Strategy(
+                        label=strategy_label_from_action, text="", actions=[action]
+                    )
                 )
 
             continue

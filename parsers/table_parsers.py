@@ -4,11 +4,23 @@ Table parsers for different types of tables in the document.
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Union
 
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+
+from models import (
+    ActionTable,
+    Fact,
+    Goals2050,
+    Heading,
+    PublicEngagementFindings,
+    ThreeFacts,
+)
+from models import (
+    Table as TableModel,
+)
 
 
 class TableType(Enum):
@@ -306,23 +318,15 @@ class BaseTableParser:
             )
         return None
 
-    def _create_output(self) -> Dict:
+    def _create_output(self) -> TableModel:
         """Create output dictionary from parsed data."""
-        result = {
-            "type": "table",
-            "rows": self.rows,
-        }
-
-        # Include border information in the output if available
-        if self.border_info:
-            result["border_info"] = self.border_info
-
-            # For convenience, add a simplified border_color field for quick comparison
-            # Use the top border color as the representative color
-            if "top_color" in self.border_info:
-                result["border_color"] = self.border_info["top_color"]
-
-        return result
+        return TableModel(
+            rows=self.rows,
+            border_info=self.border_info,
+            border_color=self.border_info.get("top_color")
+            if self.border_info
+            else None,
+        )
 
     @classmethod
     def can_parse(
@@ -338,14 +342,9 @@ class ChapterHeaderParser(BaseTableParser):
 
     table_type: ClassVar[TableType] = TableType.CHAPTER_HEADER
 
-    def _create_output(self) -> Dict:
+    def _create_output(self) -> Heading:
         """Create output for chapter header table."""
-        return {
-            "type": "heading",
-            "level": 1,
-            "text": self.rows[0][1],
-            "chapter_number": self.rows[0][0],
-        }
+        return Heading(level=1, text=self.rows[0][1], chapter_number=self.rows[0][0])
 
     @classmethod
     def can_parse(
@@ -372,18 +371,15 @@ class GoalsTableParser(BaseTableParser):
 
     table_type: ClassVar[TableType] = TableType.GOALS_2050
 
-    def _create_output(self) -> Dict:
+    def _create_output(self) -> Goals2050:
         """Create output for 2050 goals table."""
         from parsers.goals_table_parser import parse_goals_table
 
         values = parse_goals_table(self.rows)
 
-        return {
-            "type": "2050_goals",
-            "text": self.rows[0][0],
-            "section": self.current_section[0],
-            "values": values,
-        }
+        return Goals2050(
+            text=self.rows[0][0], section=self.current_section[0], values=values
+        )
 
     @classmethod
     def can_parse(
@@ -399,20 +395,24 @@ class FactsTableParser(BaseTableParser):
 
     table_type: ClassVar[TableType] = TableType.THREE_FACTS
 
-    def _create_output(self) -> Dict:
+    def _create_output(self) -> Union[ThreeFacts, PublicEngagementFindings]:
         """Create output for Three Things table."""
         from parsers.facts_table_parser import parse_facts_table
 
         facts = parse_facts_table(self.rows)
 
-        return {
-            "type": "3_public_engagement_findings"
-            if "Public Engagement" in self.rows[0][0]
-            else "3_facts",
-            "text": self.rows[0][0],
-            "section": self.current_section[0],
-            "facts": facts,
-        }
+        if "Public Engagement" in self.rows[0][0]:
+            return PublicEngagementFindings(
+                text=self.rows[0][0],
+                section=self.current_section[0],
+                facts=[Fact(title=f["title"], text=f["text"]) for f in facts],
+            )
+        else:
+            return ThreeFacts(
+                text=self.rows[0][0],
+                section=self.current_section[0],
+                facts=[Fact(title=f["title"], text=f["text"]) for f in facts],
+            )
 
     @classmethod
     def can_parse(
@@ -428,7 +428,7 @@ class ActionTableParser(BaseTableParser):
 
     table_type: ClassVar[TableType] = TableType.ACTION_TABLE
 
-    def _create_output(self) -> Dict:
+    def _create_output(self) -> ActionTable:
         """
         Create output for action table.
 
@@ -436,38 +436,20 @@ class ActionTableParser(BaseTableParser):
         {
             "type": "action_table",
             "section": "Arts and social infrastructure",
-            "objectives": [
-                {"label": "2.A", "text": "...."}
-            ],
-            "strategies": [
-                {
-                    "label": "2.1",
-                    "text": "...",
-                    "actions": [
-                        {
-                            "label": "2.1.1",
-                            "text": "...",
-                            "responsibility": "...",
-                            "time_frame": "...",
-                            "cost": "...",
-                            "starred": true,
-                            "multiple_strategies": true
-                        }
-                    ]
-                }
-            ]
+            "objectives": [List of Objective objects],
+            "strategies": [List of Strategy objects with nested Action objects]
         }
         """
         from parsers.action_table_parser import parse_action_table
 
         parsed_data = parse_action_table(self.rows)
 
-        return {
-            "type": "action_table",
-            "section": self.current_section[0] if self.current_section else "",
-            "objectives": parsed_data["objectives"],
-            "strategies": parsed_data["strategies"],
-        }
+        # parsed_data now contains Objective and Strategy objects directly
+        return ActionTable(
+            section=self.current_section[0] if self.current_section else "",
+            objectives=parsed_data["objectives"],
+            strategies=parsed_data["strategies"],
+        )
 
     @classmethod
     def can_parse(
@@ -656,7 +638,16 @@ class TableMerger:
 
         # Helper to check if an item is already in the list based on a key field
         def is_duplicate(item, item_list, key="label"):
-            return any(existing.get(key) == item.get(key) for existing in item_list)
+            item_label = item.get(key) if isinstance(item, dict) else getattr(item, key)
+            return any(
+                (
+                    existing.get(key)
+                    if isinstance(existing, dict)
+                    else getattr(existing, key)
+                )
+                == item_label
+                for existing in item_list
+            )
 
         # Combine objectives from both tables
         prev_objectives = prev_table.get("objectives", [])
@@ -675,12 +666,26 @@ class TableMerger:
         # Process strategies and their nested actions
         for strat in current_table.get("strategies", []):
             # Check if this strategy exists in the previous
-            existing_s = [s for s in merged_strategies if s["label"] == strat["label"]]
+            strat_label = strat.get("label") if isinstance(strat, dict) else strat.label
+
+            # Find existing strategy with matching label
+            existing_s = None
+            for s in merged_strategies:
+                s_label = s.get("label") if isinstance(s, dict) else s.label
+                if s_label == strat_label:
+                    existing_s = s
+                    break
 
             if existing_s:
-                # The strategy, and likely its label exist aready - we need to take our
-                # new strats actions and append them
-                existing_s[0]["actions"].extend(strat["actions"])
+                # The strategy exists already - append new actions
+                strat_actions = (
+                    strat.get("actions") if isinstance(strat, dict) else strat.actions
+                )
+
+                if isinstance(existing_s, dict):
+                    existing_s["actions"].extend(strat_actions)
+                else:
+                    existing_s.actions.extend(strat_actions)
             else:
                 merged_strategies.append(strat)
 
