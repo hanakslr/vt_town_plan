@@ -190,7 +190,7 @@ def test_actions_table(extracted_file_data):
 
     # Check each strategy has required fields and correct format
     for i, strategy in enumerate(strategies):
-        assert list(strategy.keys()) == ["label", "text", "actions"], (
+        assert set(strategy.keys()) == set(["label", "text", "actions"]), (
             f"Strategy {i} has unexpected fields"
         )
         assert strategy["label"], f"Strategy {i} missing label"

@@ -70,9 +70,18 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
         # Check if this is a strategy
         strategy_match = strategy_label_pattern.match(cell_text)
         if strategy_match:
-            result["strategies"].append(
-                {"label": row[0], "text": row[1], "actions": []}
-            )
+            # Check to see if there is already a strategy
+            existing_strat = [s for s in result["strategies"] if s["label"] == row[0]]
+
+            if existing_strat:
+                # If we have an existing strategy, we have a label and maybe actions,
+                # but maybe we don't have text
+                existing_strat = existing_strat[0]
+                existing_strat["text"] = existing_strat.get("text", None) or row[1]
+            else:
+                result["strategies"].append(
+                    {"label": row[0], "text": row[1], "actions": []}
+                )
             continue
 
         # Check if this is an action
