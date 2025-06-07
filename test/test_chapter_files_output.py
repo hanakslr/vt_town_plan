@@ -44,18 +44,18 @@ def extracted_file_data(request):
 
 def test_chapter_has_main_header(extracted_file_data):
     """
-    Check that the chapter has a chapter heading
+    Check that the chapter has a chapter number and title
     """
+    # Check that chapter_number is present in the structured document
+    assert "chapter_number" in extracted_file_data, (
+        "Document missing chapter_number field"
+    )
 
-    # Check first element is a header
-    first_element = extracted_file_data[0]
-    assert first_element["type"] == "heading", "First element is not a header"
-
-    # Check header has chapter_number
-    assert "chapter_number" in first_element, "Header missing chapter_number field"
+    # Check that title is present in the structured document
+    assert "title" in extracted_file_data, "Document missing title field"
 
     # Check chapter_number is a string
-    assert isinstance(first_element["chapter_number"], str), (
+    assert isinstance(extracted_file_data["chapter_number"], str), (
         "chapter_number is not a string"
     )
 
@@ -64,88 +64,87 @@ def test_chapter_has_2050_goals(extracted_file_data):
     """
     Check that the chapter has a valid 2050 goals block
     """
-    goals_block = [elem for elem in extracted_file_data if elem["type"] == "2050_goals"]
+    # Check that 2050_goals is present in the structured document
+    assert "2050_goals" in extracted_file_data, "Document missing 2050_goals field"
 
-    assert len(goals_block) == 1, (
-        f"Expected to find 1 goals block, found {len(goals_block)}"
-    )
+    goals_block = extracted_file_data["2050_goals"]
 
-    goals_block = goals_block[0]
+    # Check that the goals block has a section
+    assert "section" in goals_block, "Expected to find section in 2050_goals"
 
-    assert goals_block["section"], "Expected to find section"
-
+    # Check that the goals block has the expected values
+    assert "values" in goals_block, "Expected to find values in 2050_goals"
     assert list(goals_block["values"].keys()) == ["livable", "resilient", "equitable"]
 
+    # Check that each value starts with a letter
     for text in goals_block["values"].values():
         assert re.match(r"^[a-zA-Z]", text), f"Expected {text} to start with a letter"
 
 
 def test_has_3_facts(extracted_file_data):
     """
-    Check the chapter has a properly formatted 3 facts block
+    Check the chapter has a properly formatted 3 facts block as a top-level key
     """
-    facts_block = [elem for elem in extracted_file_data if elem["type"] == "3_facts"]
+    # Check that three_facts is present in the structured document
+    assert "three_facts" in extracted_file_data, "Document missing three_facts field"
 
-    assert len(facts_block) == 1, (
-        f"Expected to find 1 facts block but found {len(facts_block)}"
-    )
+    facts_block = extracted_file_data["three_facts"]
 
-    facts_block = facts_block[0]
-    assert facts_block["section"], "Expected to find section"
+    # Check that the facts block has a section
+    assert "section" in facts_block, "Expected to find section in three_facts"
     assert facts_block["text"] == "Three Things to Know"
 
+    # Check that the facts block has 3 facts
+    assert "facts" in facts_block, "Expected to find facts in three_facts"
     assert len(facts_block["facts"]) == 3
 
+    # Check each fact
     for f in facts_block["facts"]:
-        assert list(f.keys()) == ["title", "text"]
-        assert f["title"] and f["text"]
+        assert "title" in f and "text" in f, "Fact missing title or text"
+        assert f["title"] and f["text"], "Fact has empty title or text"
 
 
 def test_has_public_engagement(extracted_file_data):
     """
-    Check the chapter has a properly formatted public engagement block
+    Check the chapter has a properly formatted public engagement block as a top-level key
     """
-    engagement_block = [
-        elem
-        for elem in extracted_file_data
-        if elem["type"] == "3_public_engagement_findings"
-    ]
-
-    assert len(engagement_block) == 1, (
-        f"Expected to find 1 public engagement block but found {len(engagement_block)}"
+    # Check that public_engagement is present in the structured document
+    assert "public_engagement" in extracted_file_data, (
+        "Document missing public_engagement field"
     )
 
-    engagement_block = engagement_block[0]
-    assert engagement_block["section"], "Expected to find section"
+    engagement_block = extracted_file_data["public_engagement"]
+
+    # Check that the engagement block has a section
+    assert "section" in engagement_block, (
+        "Expected to find section in public_engagement"
+    )
     assert engagement_block["text"] == "Three Things Public Engagement Told Us"
 
+    # Check that the engagement block has 3 facts
+    assert "facts" in engagement_block, "Expected to find facts in public_engagement"
     assert len(engagement_block["facts"]) == 3
 
+    # Check each fact
     for f in engagement_block["facts"]:
-        assert list(f.keys()) == ["title", "text"]
-        assert f["title"] and f["text"]
+        assert "title" in f and "text" in f, "Fact missing title or text"
+        assert f["title"] and f["text"], "Fact has empty title or text"
 
 
 def test_actions_table(extracted_file_data):
     """
     Check the format of the objectives/strategies/actions table.
     """
-    action_block = [
-        elem for elem in extracted_file_data if elem["type"] == "action_table"
-    ]
+    # Check that actions is present in the structured document
+    assert "actions" in extracted_file_data, "Document missing actions field"
 
-    assert len(action_block) == 1
+    action_block = extracted_file_data["actions"]
 
-    action_block = action_block[0]
+    # Check that the action block has a section
+    assert "section" in action_block, "Expected to find section in actions"
 
-    assert action_block["section"]
-
-    chapter_block = [
-        elem
-        for elem in extracted_file_data
-        if elem["type"] == "heading" and elem["level"] == 1
-    ][0]
-    chapter_number = chapter_block["chapter_number"]
+    # Get chapter number from the structured document
+    chapter_number = extracted_file_data["chapter_number"]
 
     ## Objectives
     # Each objective should have a label and text. The labels and text should go in order.

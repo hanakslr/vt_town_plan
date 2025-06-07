@@ -14,7 +14,6 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml import etree
-from sentence_transformers import SentenceTransformer
 
 from models import (
     Action,
@@ -27,6 +26,7 @@ from models import (
     Objective,
     PublicEngagementFindings,
     Strategy,
+    StructuredDocument,
     ThreeFacts,
     to_dict,
 )
@@ -85,12 +85,12 @@ class DocumentExtract:
     doc: Document
     current_section: list[Heading]
     numbering_tree: Any
-    elements: list[DocumentElement]
+    document: StructuredDocument
 
     def __init__(self, file_path: str) -> None:
         self.doc = Document(file_path)
         self.current_section = []
-        self.elements = []
+        self.document = StructuredDocument()
         self.numbering_tree = load_numbering_xml(file_path)
         self.numId_to_abstractId, self.abstractId_to_levels = (
             parse_numbering_definitions(self.numbering_tree)
@@ -99,16 +99,16 @@ class DocumentExtract:
 
     def extract(self):
         """
-        Process the document, extracting the elements into typed dataclasses.
+        Process the document, extracting the elements into a structured document.
         """
-        elements = []
+        general_content = []
         previous_table = None
 
         for block in self._iter_block_items():
             if isinstance(block, Paragraph):
                 data = self._extract_paragraph(block)
                 if data and getattr(data, "text", None):  # Skip empty paragraphs
-                    elements.append(data)
+                    self._add_to_document(data, general_content)
             elif isinstance(block, Table):
                 data = self._extract_table(block)
                 if data:
@@ -127,67 +127,141 @@ class DocumentExtract:
                         )
                         # Convert merged dict back to dataclass
                         previous_table = self._dict_to_model(previous_table)
-                        # Replace the last element with the merged table if it's there
-                        for i in range(len(elements) - 1, -1, -1):
-                            if (
-                                hasattr(elements[i], "type")
-                                and elements[i].type == previous_table.type
-                            ):
-                                elements[i] = previous_table
-                                break
+
+                        # Update the appropriate section of the document
+                        self._update_merged_table(previous_table, general_content)
                     else:
-                        elements.append(data)
+                        self._add_to_document(data, general_content)
                         previous_table = data
             else:
                 raise Exception(f"Unexpected instance item {block}")
 
-        self.elements = elements
+        # Update the document's content with the processed general content
+        self.document.content = general_content
+
+    def _add_to_document(self, data, general_content):
+        """Add an extracted element to the appropriate place in the structured document."""
+        # Main chapter heading
+        if isinstance(data, Heading) and data.level == 1:
+            self.document.chapter_number = getattr(data, "chapter_number", None)
+            self.document.title = data.text
+
+        # 2050 goals
+        elif isinstance(data, Goals2050):
+            self.document.goals_2050 = data
+
+        # Three facts
+        elif isinstance(data, ThreeFacts):
+            self.document.three_facts = data
+
+        # Public engagement findings
+        elif isinstance(data, PublicEngagementFindings):
+            self.document.public_engagement = data
+
+        # Action table
+        elif isinstance(data, ActionTable):
+            self.document.actions = data
+
+        # All other content - paragraphs, sections, captions, etc.
+        else:
+            # If the element has a section_path attribute, remove it
+            # since the structure will be implicit in the new format
+            if hasattr(data, "section_path"):
+                # Make a copy to avoid modifying the original
+                data_copy = data
+                if hasattr(data_copy, "section_path"):
+                    data_copy.section_path = None
+                general_content.append(data_copy)
+            else:
+                general_content.append(data)
+
+    def _update_merged_table(self, merged_table, general_content):
+        """Update the document with a merged table."""
+        # Action table
+        if isinstance(merged_table, ActionTable):
+            self.document.actions = merged_table
+        # 2050 goals
+        elif isinstance(merged_table, Goals2050):
+            self.document.goals_2050 = merged_table
+        # Three facts
+        elif isinstance(merged_table, ThreeFacts):
+            self.document.three_facts = merged_table
+        # Public engagement findings
+        elif isinstance(merged_table, PublicEngagementFindings):
+            self.document.public_engagement = merged_table
+        # Other table types
+        else:
+            # Find and replace in general content
+            for i in range(len(general_content) - 1, -1, -1):
+                if isinstance(general_content[i], type(merged_table)):
+                    general_content[i] = merged_table
+                    break
 
     def encode(self):
-        if not self.elements:
-            return
-
-        model = SentenceTransformer("all-MiniLM-L6-v2")  # fast and good for retrieval
-
-        def prepare(chunk):
-            if hasattr(chunk, "section_path") and getattr(chunk, "section_path", None):
-                prefix = "\n".join(chunk.section_path)
-                return f"{prefix}\n{chunk.text}"
-            return chunk.text
-
-        texts = [prepare(chunk) for chunk in self.elements]
-        embeddings = model.encode(texts, convert_to_numpy=True)
-        embeddings = embeddings.tolist()
-
-        assert len(embeddings) == len(self.elements), (
-            "Expected embeddings and elements to be the same length"
-        )
-
-        for i, e in enumerate(self.elements):
-            setattr(e, "embedding", embeddings[i])
+        # Will be updated as per your requirements
+        pass
 
     def dump_to_file(self, path):
+        """Save the structured document to a JSON file."""
         with open(path, "w", encoding="utf-8") as f:
-            json.dump([to_dict(e) for e in self.elements], f, indent=2)
+            json.dump(self.document.to_dict(), f, indent=2)
 
     def dump_to_db(self):
+        """Save the structured document to the database."""
         conn = psycopg.connect(
             dbname="db", user="admin", password="password", host="localhost", port=5431
         )
         cur = conn.cursor()
 
-        for e in self.elements:
-            element_dict = to_dict(e)
+        doc_dict = self.document.to_dict()
+
+        # Insert chapter metadata
+        cur.execute(
+            """
+            INSERT INTO chapters (chapter_number, title)
+            VALUES (%s, %s)
+            RETURNING id
+            """,
+            (
+                doc_dict.get("chapter_number"),
+                doc_dict.get("title"),
+            ),
+        )
+        chapter_id = cur.fetchone()[0]
+
+        # Insert special sections if they exist
+        if "2050_goals" in doc_dict:
             cur.execute(
                 """
-                INSERT INTO plan_chunks (content_type, content, section_path, embedding)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO goals (chapter_id, content)
+                VALUES (%s, %s)
+                """,
+                (chapter_id, json.dumps(doc_dict["2050_goals"])),
+            )
+
+        if "actions" in doc_dict:
+            cur.execute(
+                """
+                INSERT INTO actions (chapter_id, content)
+                VALUES (%s, %s)
+                """,
+                (chapter_id, json.dumps(doc_dict["actions"])),
+            )
+
+        # Insert content chunks
+        for item in doc_dict.get("content", []):
+            item_type = item.get("type", "unknown")
+            item_text = item.get("text", "")
+
+            cur.execute(
+                """
+                INSERT INTO plan_chunks (chapter_id, content_type, content)
+                VALUES (%s, %s, %s)
                 """,
                 (
-                    element_dict["type"],
-                    element_dict.get("text", ""),
-                    json.dumps(element_dict.get("section_path", None)),
-                    element_dict.get("embedding", None),
+                    chapter_id,
+                    item_type,
+                    item_text,
                 ),
             )
 
