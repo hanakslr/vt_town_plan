@@ -480,7 +480,7 @@ class ActionTableParser(BaseTableParser):
         if not rows:
             return False
 
-        if rows[0][0] == "Objectives, Strategies, and Actions":
+        if rows[0][0].lower().replace(",", "") == "objectives strategies and actions":
             return True
 
         # Look for patterns like "2.A", "2.1", "2.1.1" in the first column
@@ -680,7 +680,7 @@ class TableMerger:
             if existing_s:
                 # The strategy, and likely its label exist aready - we need to take our
                 # new strats actions and append them
-                existing_s[0]["actions"].append(strat["actions"])
+                existing_s[0]["actions"].extend(strat["actions"])
             else:
                 merged_strategies.append(strat)
 

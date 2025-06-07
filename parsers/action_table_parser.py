@@ -48,10 +48,10 @@ def parse_action_table(rows: List[List[str]]) -> Dict:
             continue
 
         # Title rows
-        if row[0] in [
-            "Objectives, Strategies, and Actions",
-            "Objectives",
-            "Strategies",
+        if row[0].lower().replace(",", "") in [
+            "objectives strategies and Actions",
+            "objectives",
+            "strategies",
         ]:
             continue
 

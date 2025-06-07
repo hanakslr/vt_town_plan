@@ -217,7 +217,7 @@ def test_actions_table(extracted_file_data):
             # Check required fields
             required_fields = ["label", "text", "responsibility", "time_frame", "cost"]
             assert all(field in action for field in required_fields), (
-                f"Action {j} in strategy {strategy['label']} missing required fields"
+                f"Action {j} in strategy {strategy['label']} missing required fields. Has {action}. Expected: {required_fields}"
             )
             assert all(action[field] for field in required_fields), (
                 f"Action {j} in strategy {strategy['label']} has empty required fields"
