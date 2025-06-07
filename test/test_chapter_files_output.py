@@ -131,6 +131,34 @@ def test_has_public_engagement(extracted_file_data):
         assert f["title"] and f["text"], "Fact has empty title or text"
 
 
+def test_content_has_section_path(extracted_file_data):
+    """
+    Check that content items have section_path property where applicable.
+    """
+    # Check that content is present in the structured document
+    assert "content" in extracted_file_data, "Document missing content field"
+
+    # Find items that should have section_path (paragraphs, captions)
+    content_items = [
+        item
+        for item in extracted_file_data["content"]
+        if item.get("type") in ["paragraph", "caption"]
+    ]
+
+    # Make sure we found some content items to check
+    assert len(content_items) > 0, "No paragraph or caption content items found"
+
+    # Check that they have section_path property
+    for item in content_items:
+        assert "section_path" in item, f"Content item missing section_path: {item}"
+
+        # If section_path is not None, it should be a list
+        if item["section_path"] is not None:
+            assert isinstance(item["section_path"], list), (
+                "section_path should be a list"
+            )
+
+
 def test_actions_table(extracted_file_data):
     """
     Check the format of the objectives/strategies/actions table.

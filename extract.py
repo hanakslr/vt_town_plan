@@ -164,16 +164,9 @@ class DocumentExtract:
 
         # All other content - paragraphs, sections, captions, etc.
         else:
-            # If the element has a section_path attribute, remove it
-            # since the structure will be implicit in the new format
-            if hasattr(data, "section_path"):
-                # Make a copy to avoid modifying the original
-                data_copy = data
-                if hasattr(data_copy, "section_path"):
-                    data_copy.section_path = None
-                general_content.append(data_copy)
-            else:
-                general_content.append(data)
+            # Keep the section_path property for organizing content
+            # It helps with preserving the document structure
+            general_content.append(data)
 
     def _update_merged_table(self, merged_table, general_content):
         """Update the document with a merged table."""

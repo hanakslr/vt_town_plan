@@ -209,10 +209,19 @@ class StructuredDocument:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the structured document to a dictionary."""
+        # Preserve section_path in content items for hierarchical organization
+        content_dicts = []
+        for item in self.content:
+            item_dict = to_dict(item)
+            # Ensure section_path is preserved in the output
+            if hasattr(item, "section_path") and item.section_path:
+                item_dict["section_path"] = item.section_path
+            content_dicts.append(item_dict)
+
         result = {
             "chapter_number": self.chapter_number,
             "title": self.title,
-            "content": [to_dict(item) for item in self.content],
+            "content": content_dicts,
         }
 
         # Only include special sections if they exist
