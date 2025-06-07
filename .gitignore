@@ -1,5 +1,8 @@
 files/
 output/
+.env
+
+qdrant_storage/*
 
 __pycache__/
 *.py[cod]

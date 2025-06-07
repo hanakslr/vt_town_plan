@@ -31,3 +31,9 @@ docker compose -f docker/db.yml down -v
 
 1. Extract structure and embeddings of the docx file. `python extract.py file_name`. This will read, chunk, embed, and dump to pg.
 2. Search. Running `python search.py search_term` will perform a semantic search and return the top 5 results.
+
+## Qdrant
+
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant
+
+docker stop qdrant && docker rm qdrant
