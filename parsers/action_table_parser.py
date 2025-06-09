@@ -5,7 +5,7 @@ Parser for action tables in the document.
 import re
 from typing import Dict, List
 
-from models import Action, Objective, Strategy
+from elements import Action, Objective, Strategy
 
 
 def parse_action_table(rows: List[List[str]]) -> Dict[str, List]:

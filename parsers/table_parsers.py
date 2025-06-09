@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
-from models import (
+from elements import (
     ActionTable,
     Fact,
     Goals2050,
@@ -18,7 +18,7 @@ from models import (
     PublicEngagementFindings,
     ThreeFacts,
 )
-from models import (
+from elements import (
     Table as TableModel,
 )
 

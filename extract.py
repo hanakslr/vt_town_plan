@@ -15,7 +15,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml import etree
 
-from models import (
+from elements import (
     Action,
     ActionTable,
     Caption,
@@ -30,10 +30,10 @@ from models import (
     ThreeFacts,
     to_dict,
 )
-from models import (
+from elements import (
     Paragraph as Para,
 )
-from models import (
+from elements import (
     Table as TableModel,
 )
 from parsers.table_parsers import TableMerger, TableParserFactory, TableStyles
@@ -126,7 +126,7 @@ class DocumentExtract:
                             to_dict(previous_table), to_dict(data)
                         )
                         # Convert merged dict back to dataclass
-                        previous_table = self._dict_to_model(previous_table)
+                        previous_table = self._dict_to_element(previous_table)
 
                         # Update the appropriate section of the document
                         self._update_merged_table(previous_table, general_content)
@@ -391,7 +391,7 @@ class DocumentExtract:
                 f"Unknown paragraph style {paragraph.style.name}. Content: {paragraph.text.strip()}"
             )
 
-    def _dict_to_model(self, d: dict) -> DocumentElement:
+    def _dict_to_element(self, d: dict) -> DocumentElement:
         if not d or "type" not in d:
             return d
         t = d["type"]
