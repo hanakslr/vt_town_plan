@@ -5,7 +5,8 @@ and generating embeddings.
 
 import json
 from collections import defaultdict
-from typing import Any
+from dataclasses import asdict, is_dataclass
+from typing import Any, Dict
 from zipfile import ZipFile
 
 import psycopg
@@ -19,7 +20,7 @@ from elements import (
     Action,
     ActionTable,
     Caption,
-    DocumentElement,
+    DocumentSection,
     Fact,
     Goals2050,
     Heading,
@@ -28,7 +29,6 @@ from elements import (
     Strategy,
     StructuredDocument,
     ThreeFacts,
-    to_dict,
 )
 from elements import (
     Paragraph as Para,
@@ -118,12 +118,14 @@ class DocumentExtract:
                         and hasattr(previous_table, "type")
                         and hasattr(data, "type")
                         and TableMerger.should_merge(
-                            to_dict(previous_table), to_dict(data)
+                            self._serialize_element(previous_table),
+                            self._serialize_element(data),
                         )
                     ):
                         # Merge with previous table instead of adding a new one
                         previous_table = TableMerger.merge_tables(
-                            to_dict(previous_table), to_dict(data)
+                            self._serialize_element(previous_table),
+                            self._serialize_element(data),
                         )
                         # Convert merged dict back to dataclass
                         previous_table = self._dict_to_element(previous_table)
@@ -296,7 +298,7 @@ class DocumentExtract:
 
         return label
 
-    def _extract_table(self, table: Table) -> DocumentElement:
+    def _extract_table(self, table: Table) -> DocumentSection:
         rows = []
         styles = []
         seen_cells = set()
@@ -355,7 +357,7 @@ class DocumentExtract:
             )
         return result if result else None
 
-    def _extract_paragraph(self, paragraph: Paragraph) -> DocumentElement:
+    def _extract_paragraph(self, paragraph: Paragraph) -> DocumentSection:
         if not paragraph.text.strip():
             return None
         if paragraph.style.name == "Section Heading":
@@ -391,7 +393,7 @@ class DocumentExtract:
                 f"Unknown paragraph style {paragraph.style.name}. Content: {paragraph.text.strip()}"
             )
 
-    def _dict_to_element(self, d: dict) -> DocumentElement:
+    def _dict_to_element(self, d: dict) -> DocumentSection:
         if not d or "type" not in d:
             return d
         t = d["type"]
@@ -428,6 +430,17 @@ class DocumentExtract:
             )
         else:
             return d
+
+    def _serialize_element(self, element: Any) -> Dict[str, Any]:
+        """Serialize an element to a dictionary using the appropriate method."""
+        if isinstance(element, DocumentSection):
+            return element.to_dict()
+        elif is_dataclass(element):
+            return asdict(element)
+        elif isinstance(element, dict):
+            return element
+        else:
+            return {"value": str(element)}
 
 
 # Example usage: `python extract.py files/docx_test.docx`

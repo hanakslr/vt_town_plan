@@ -1,43 +1,11 @@
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from .action_table import ActionTable
-from .caption import Caption
+from .document_section import DocumentSection
 from .goals_2050 import Goals2050
-from .heading import Heading
-from .paragraph import Paragraph
 from .public_engagement import PublicEngagementFindings
-from .table import Table
 from .three_facts import ThreeFacts
-
-# Union type for all possible document elements
-DocumentElement = Union[
-    Heading,
-    Paragraph,
-    Caption,
-    ThreeFacts,
-    PublicEngagementFindings,
-    Goals2050,
-    Table,
-    ActionTable,
-]
-
-
-def to_dict(obj: Any) -> Dict:
-    """Convert an object to a dictionary.
-
-    - Uses custom to_dict() method if available
-    - Falls back to dataclasses.asdict() for dataclasses
-    - Returns the object itself if it's already a dict
-    """
-    if hasattr(obj, "to_dict") and callable(obj.to_dict):
-        return obj.to_dict()
-    elif is_dataclass(obj):
-        return asdict(obj)
-    elif isinstance(obj, dict):
-        return obj
-    else:
-        return {"value": str(obj)}
 
 
 class StructuredDocument:
@@ -62,7 +30,7 @@ class StructuredDocument:
         three_facts: Optional[ThreeFacts] = None,
         public_engagement: Optional[PublicEngagementFindings] = None,
         actions: Optional[ActionTable] = None,
-        content: List[DocumentElement] = None,
+        content: List[DocumentSection] = None,
     ):
         self.chapter_number = chapter_number
         self.title = title
@@ -77,7 +45,13 @@ class StructuredDocument:
         # Preserve section_path in content items for hierarchical organization
         content_dicts = []
         for item in self.content:
-            item_dict = to_dict(item)
+            if isinstance(item, DocumentSection):
+                item_dict = item.to_dict()
+            elif is_dataclass(item):
+                item_dict = asdict(item)
+            else:
+                item_dict = {"value": str(item)}
+
             # Ensure section_path is preserved in the output
             if hasattr(item, "section_path") and item.section_path:
                 item_dict["section_path"] = item.section_path
@@ -91,15 +65,15 @@ class StructuredDocument:
 
         # Only include special sections if they exist
         if self.goals_2050:
-            result["2050_goals"] = to_dict(self.goals_2050)
+            result["2050_goals"] = self.goals_2050.to_dict()
 
         if self.three_facts:
-            result["three_facts"] = to_dict(self.three_facts)
+            result["three_facts"] = self.three_facts.to_dict()
 
         if self.public_engagement:
-            result["public_engagement"] = to_dict(self.public_engagement)
+            result["public_engagement"] = self.public_engagement.to_dict()
 
         if self.actions:
-            result["actions"] = to_dict(self.actions)
+            result["actions"] = self.actions.to_dict()
 
         return result
