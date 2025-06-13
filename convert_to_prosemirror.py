@@ -40,9 +40,9 @@ class ProseMirrorNode:
         chapter_letters = "".join(c for c in self.chapter if c.isalpha())
         return f"c{chapter_letters}-{self.type}{self.index}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         """Convert the node to a LlamaIndex Document."""
-        raise NotImplementedError("Subclasses must implement to_document method")
+        raise NotImplementedError("Subclasses must implement to_qdrant_document method")
 
     def get_text(self) -> str:
         """Extract text content from the node."""
@@ -71,7 +71,7 @@ class TextNode(ProseMirrorNode):
     def get_text(self) -> str:
         return self.text
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.text,
             "metadata": {"node_type": "text", "id": self.attrs.get("id", "")},
@@ -93,7 +93,7 @@ class HeadingNode(ProseMirrorNode):
     def get_text(self) -> str:
         return " ".join(n.get_text() for n in self.text_nodes)
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -124,7 +124,7 @@ class ParagraphNode(ProseMirrorNode):
     def get_text(self) -> str:
         return " ".join(n.get_text() for n in self.text_nodes)
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {"node_type": "paragraph", "id": self.attrs.get("id", "")},
@@ -149,7 +149,7 @@ class GoalsTableNode(ProseMirrorNode):
         )
         return f"{self.text}\nSection: {self.section}\n{values_text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -175,7 +175,7 @@ class ObjectiveNode(ProseMirrorNode):
     def get_text(self) -> str:
         return f"{self.label}: {self.text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -215,7 +215,7 @@ class ActionNode(ProseMirrorNode):
             f"Cost: {self.cost}"
         )
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -250,7 +250,7 @@ class StrategyNode(ProseMirrorNode):
     def get_text(self) -> str:
         return f"{self.label}: {self.text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -275,7 +275,7 @@ class FactNode(ProseMirrorNode):
     def get_text(self) -> str:
         return f"{self.title}\n{self.text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -309,7 +309,7 @@ class ThreeFactsNode(ProseMirrorNode):
         facts_text = "\n\n".join([fact.get_text() for fact in self.facts])
         return f"{self.text}\nSection: {self.section}\n\n{facts_text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -338,7 +338,7 @@ class PublicEngagementNode(ProseMirrorNode):
         facts_text = "\n\n".join([fact.get_text() for fact in self.facts])
         return f"{self.text}\nSection: {self.section}\n\n{facts_text}"
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -373,7 +373,7 @@ class ActionTableNode(ProseMirrorNode):
         strat_texts = [strat.get_text() for strat in self.strategies]
         return "\n\n".join(obj_texts + strat_texts)
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {"node_type": "action_table", "id": self.attrs.get("id", "")},
@@ -384,7 +384,7 @@ class ActionTableNode(ProseMirrorNode):
 
 
 class DocNode(ProseMirrorNode):
-    """Represents the root doc node in ProSeMirror."""
+    """Represents the root doc node in ProseMirror."""
 
     def __init__(self, node_data: Dict[str, Any]):
         self.chapter = node_data.get("attrs", {}).get("chapter", "")
@@ -438,7 +438,7 @@ class DocNode(ProseMirrorNode):
         """Get the chapter title from the first level 1 heading."""
         return self.title
 
-    def to_document(self) -> Dict[str, Any]:
+    def to_qdrant_document(self) -> Dict[str, Any]:
         return {
             "text": self.get_text(),
             "metadata": {
@@ -549,7 +549,6 @@ def convert_block(block, chapter, index):
             "type": "heading",
             "attrs": {
                 "level": block["level"],
-                "id": f"c{chapter}-h{block['level']}-{id_suffix}",
             },
             "content": [{"type": "text", "text": block["text"]}],
         }
