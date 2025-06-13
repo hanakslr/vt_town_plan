@@ -4,6 +4,19 @@ import os
 from typing import Any, Dict, List, Optional
 
 
+def clean_id(s: str) -> str:
+    """Clean an ID string to only contain letters and hyphens.
+
+    Args:
+        s: The string ID to clean
+
+    Returns:
+        The cleaned string containing only letters and hyphens
+    """
+    print(f"Cleaning {s}")
+    return "".join(c for c in s if c.isalpha() or c == "-")
+
+
 class ProseMirrorNode:
     """Base class for all ProSeMirror node types."""
 
@@ -19,7 +32,7 @@ class ProseMirrorNode:
 
         # Generate a unique ID if not already present
         if "id" not in self.attrs:
-            self.attrs["id"] = self._generate_id()
+            self.attrs["id"] = clean_id(self._generate_id())
 
     def _generate_id(self) -> str:
         """Generate a unique, deterministic ID for this node."""
@@ -251,6 +264,94 @@ class StrategyNode(ProseMirrorNode):
         return f"c{self.chapter}-strategy-{self.label}"
 
 
+class FactNode(ProseMirrorNode):
+    """Represents a fact node in ProSeMirror."""
+
+    def __init__(self, node_data: Dict[str, Any], index: int = 0, chapter: str = ""):
+        super().__init__(node_data, index, chapter)
+        self.title = self.attrs.get("title", "")
+        self.text = self.attrs.get("text", "")
+
+    def get_text(self) -> str:
+        return f"{self.title}\n{self.text}"
+
+    def to_document(self) -> Dict[str, Any]:
+        return {
+            "text": self.get_text(),
+            "metadata": {
+                "node_type": "fact",
+                "title": self.title,
+                "id": self.attrs.get("id", ""),
+            },
+        }
+
+    def _generate_id(self) -> str:
+        title_slug = (
+            self.title.lower().replace(" ", "-")[:15]
+            if self.title
+            else f"fact-{self.index}"
+        )
+        return f"c{self.chapter}-fact-{title_slug}"
+
+
+class ThreeFactsNode(ProseMirrorNode):
+    """Represents a three_facts node in ProSeMirror."""
+
+    def __init__(self, node_data: Dict[str, Any], index: int = 0, chapter: str = ""):
+        super().__init__(node_data, index, chapter)
+        self.text = self.attrs.get("text", "")
+        self.section = self.attrs.get("section", "")
+        self.facts = [
+            FactNode(f, i, chapter) for i, f in enumerate(self.attrs.get("facts", []))
+        ]
+
+    def get_text(self) -> str:
+        facts_text = "\n\n".join([fact.get_text() for fact in self.facts])
+        return f"{self.text}\nSection: {self.section}\n\n{facts_text}"
+
+    def to_document(self) -> Dict[str, Any]:
+        return {
+            "text": self.get_text(),
+            "metadata": {
+                "node_type": "three_facts",
+                "section": self.section,
+                "id": self.attrs.get("id", ""),
+            },
+        }
+
+    def _generate_id(self) -> str:
+        return f"c{self.chapter}-three-facts"
+
+
+class PublicEngagementNode(ProseMirrorNode):
+    """Represents a public_engagement node in ProSeMirror."""
+
+    def __init__(self, node_data: Dict[str, Any], index: int = 0, chapter: str = ""):
+        super().__init__(node_data, index, chapter)
+        self.text = self.attrs.get("text", "")
+        self.section = self.attrs.get("section", "")
+        self.facts = [
+            FactNode(f, i, chapter) for i, f in enumerate(self.attrs.get("facts", []))
+        ]
+
+    def get_text(self) -> str:
+        facts_text = "\n\n".join([fact.get_text() for fact in self.facts])
+        return f"{self.text}\nSection: {self.section}\n\n{facts_text}"
+
+    def to_document(self) -> Dict[str, Any]:
+        return {
+            "text": self.get_text(),
+            "metadata": {
+                "node_type": "public_engagement",
+                "section": self.section,
+                "id": self.attrs.get("id", ""),
+            },
+        }
+
+    def _generate_id(self) -> str:
+        return f"c{self.chapter}-public-engagement"
+
+
 class ActionTableNode(ProseMirrorNode):
     """Represents an action_table node in ProSeMirror."""
 
@@ -295,6 +396,8 @@ class DocNode(ProseMirrorNode):
         para_index = 0
         goals_index = 0
         actions_index = 0
+        three_facts_index = 0
+        public_engagement_index = 0
 
         for i, item in enumerate(self.content):
             node_type = item.get("type", "")
@@ -317,6 +420,16 @@ class DocNode(ProseMirrorNode):
                 actions_node = ActionTableNode(item, actions_index, self.chapter)
                 actions_index += 1
                 self.nodes.append(actions_node)
+            elif node_type == "three_facts":
+                three_facts_node = ThreeFactsNode(item, three_facts_index, self.chapter)
+                three_facts_index += 1
+                self.nodes.append(three_facts_node)
+            elif node_type == "public_engagement":
+                public_engagement_node = PublicEngagementNode(
+                    item, public_engagement_index, self.chapter
+                )
+                public_engagement_index += 1
+                self.nodes.append(public_engagement_node)
 
     def get_text(self) -> str:
         return "\n\n".join([node.get_text() for node in self.nodes])
@@ -355,7 +468,11 @@ class DocNode(ProseMirrorNode):
                     result["content"].append(strategy_dict)
                 # If node is an ActionTableNode with objectives and strategies
                 elif isinstance(node, ActionTableNode):
-                    action_table_dict = {"type": node.type, "content": []}
+                    action_table_dict = {
+                        "type": node.type,
+                        "attrs": node.attrs,
+                        "content": [],
+                    }
                     # Add objectives
                     for obj in node.objectives:
                         action_table_dict["content"].append(obj.to_dict())
@@ -369,6 +486,11 @@ class DocNode(ProseMirrorNode):
                         action_table_dict["content"].append(strat_dict)
 
                     result["content"].append(action_table_dict)
+                # Handle ThreeFactsNode and PublicEngagementNode
+                elif isinstance(node, (ThreeFactsNode, PublicEngagementNode)):
+                    # These nodes store facts in their attrs
+                    facts_dict = {"type": node.type, "attrs": node.attrs}
+                    result["content"].append(facts_dict)
                 # For simpler nodes like paragraphs and headings
                 else:
                     node_dict = {"type": node.type, "attrs": node.attrs}
@@ -411,6 +533,12 @@ def create_node_from_data(node_data: Dict[str, Any]) -> Optional[ProseMirrorNode
         return ActionNode(node_data)
     elif node_type == "action_table":
         return ActionTableNode(node_data)
+    elif node_type == "three_facts":
+        return ThreeFactsNode(node_data)
+    elif node_type == "public_engagement":
+        return PublicEngagementNode(node_data)
+    elif node_type == "fact":
+        return FactNode(node_data)
     return None
 
 
@@ -421,14 +549,14 @@ def convert_block(block, chapter, index):
             "type": "heading",
             "attrs": {
                 "level": block["level"],
-                "id": f"{chapter}-h{block['level']}-{id_suffix}",
+                "id": f"c{chapter}-h{block['level']}-{id_suffix}",
             },
             "content": [{"type": "text", "text": block["text"]}],
         }
     elif block["type"] == "paragraph":
         return {
             "type": "paragraph",
-            "attrs": {"id": f"{chapter}-p-{index}"},
+            "attrs": {"id": f"c{chapter}-p{index}"},
             "content": [{"type": "text", "text": block["text"]}],
         }
     return None
@@ -441,7 +569,7 @@ def convert_goals(goals, chapter):
             "text": goals["text"],
             "section": goals["section"],
             "values": goals["values"],
-            "id": f"{chapter}-goals",
+            "id": f"c{chapter}-goals",
         },
     }
 
@@ -452,7 +580,7 @@ def convert_objective(obj, chapter, index):
         "attrs": {
             "label": obj["label"],
             "text": obj["text"],
-            "id": f"{chapter}-obj-{obj['label']}",
+            "id": f"c{chapter}-obj-{obj['label']}",
         },
     }
 
@@ -469,7 +597,7 @@ def convert_action(action, chapter, strategy_label=None):
             "responsibility": action.get("responsibility", ""),
             "time_frame": action.get("time_frame", ""),
             "cost": action.get("cost", ""),
-            "id": f"{chapter}-action-{id_suffix}",
+            "id": f"c{chapter}-action-{id_suffix}",
         },
     }
 
@@ -480,7 +608,7 @@ def convert_strategy(strategy, chapter):
         "attrs": {
             "label": strategy["label"],
             "text": strategy["text"],
-            "id": f"{chapter}-strategy-{strategy['label']}",
+            "id": f"c{chapter}-strategy-{strategy['label']}",
         },
         "content": [],
     }
@@ -507,8 +635,48 @@ def convert_actions_table(actions, chapter):
 
     return {
         "type": "action_table",
-        "attrs": {"id": f"{chapter}-actions"},
+        "attrs": {"id": f"c{chapter}-actions"},
         "content": content,
+    }
+
+
+def convert_fact(fact, chapter, section, index):
+    return {
+        "attrs": {
+            "title": fact.get("title", ""),
+            "text": fact.get("text", ""),
+            "id": f"c{chapter}-{section}-f{index}",
+        }
+    }
+
+
+def convert_three_facts(facts_data, chapter):
+    return {
+        "type": "three_facts",
+        "attrs": {
+            "text": facts_data.get("text", ""),
+            "section": facts_data.get("section", ""),
+            "facts": [
+                convert_fact(f, chapter, "facts", i)
+                for i, f in enumerate(facts_data.get("facts", []))
+            ],
+            "id": f"c{chapter}-three-facts",
+        },
+    }
+
+
+def convert_public_engagement(engagement_data, chapter):
+    return {
+        "type": "public_engagement",
+        "attrs": {
+            "text": engagement_data.get("text", ""),
+            "section": engagement_data.get("section", ""),
+            "facts": [
+                convert_fact(f, chapter, "public", i)
+                for i, f in enumerate(engagement_data.get("facts", []))
+            ],
+            "id": f"c{chapter}-public-engagement",
+        },
     }
 
 
@@ -525,7 +693,7 @@ def convert_document(custom_json):
     title_slug = title_text.lower().replace(" ", "-")[:20]
     title_block = {
         "type": "heading",
-        "attrs": {"level": 1, "id": f"{chapter}-h1-{title_slug}"},
+        "attrs": {"level": 1, "id": f"c{chapter}-h1-{title_slug}"},
         "content": [{"type": "text", "text": title_text}],
     }
 
@@ -543,6 +711,14 @@ def convert_document(custom_json):
 
     if "actions" in custom_json:
         doc["content"].append(convert_actions_table(custom_json["actions"], chapter))
+
+    if "three_facts" in custom_json:
+        doc["content"].append(convert_three_facts(custom_json["three_facts"], chapter))
+
+    if "public_engagement" in custom_json:
+        doc["content"].append(
+            convert_public_engagement(custom_json["public_engagement"], chapter)
+        )
 
     return doc
 
