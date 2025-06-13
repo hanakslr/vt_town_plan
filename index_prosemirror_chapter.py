@@ -21,6 +21,8 @@ from llama_index.core import Document, Settings, StorageContext, VectorStoreInde
 from llama_index.core.node_parser import SimpleNodeParser
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.vector_stores.qdrant.base import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client import models
 
 from convert_to_prosemirror import (
     ActionTableNode,
@@ -67,7 +69,7 @@ def process_prosemirror_node(
             base_metadata["section"] = section_path[-1]
 
     # Get the node document with metadata
-    node_doc = node.to_document()
+    node_doc = node.to_qdrant_document()
 
     # Skip empty text
     if not node_doc["text"].strip():
@@ -84,19 +86,19 @@ def process_prosemirror_node(
     if isinstance(node, ActionTableNode):
         # Process objectives
         for objective in node.objectives:
-            obj_doc = objective.to_document()
+            obj_doc = objective.to_qdrant_document()
             obj_metadata = {**base_metadata, **obj_doc["metadata"]}
             documents.append(Document(text=obj_doc["text"], metadata=obj_metadata))
 
         # Process strategies and their actions
         for strategy in node.strategies:
-            strat_doc = strategy.to_document()
+            strat_doc = strategy.to_qdrant_document()
             strat_metadata = {**base_metadata, **strat_doc["metadata"]}
             documents.append(Document(text=strat_doc["text"], metadata=strat_metadata))
 
             # Process actions for this strategy
             for action in strategy.actions:
-                action_doc = action.to_document()
+                action_doc = action.to_qdrant_document()
                 action_metadata = {
                     **base_metadata,
                     **action_doc["metadata"],
@@ -186,12 +188,27 @@ def index_prosemirror_chapter(
     # Set up the vector database connection
     client = qdrant_client.QdrantClient(
         url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-        api_key=os.getenv("QDRANT_API_KEY", None),
+        api_key=os.getenv("QDRANT_CLOUD_API_KEY", None),
     )
 
     # Configure LlamaIndex
     Settings.embed_model = OpenAIEmbedding()
     Settings.node_parser = SimpleNodeParser.from_defaults()
+
+    # Check if collection exists before creating it
+    collections = client.get_collections().collections
+    collection_names = [collection.name for collection in collections]
+
+    if collection_name not in collection_names:
+        print(f"Creating new collection: {collection_name}")
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(
+                size=1536, distance=models.Distance.COSINE
+            ),
+        )
+    else:
+        print(f"Using existing collection: {collection_name}")
 
     # Set up Qdrant vector store
     vector_store = QdrantVectorStore(

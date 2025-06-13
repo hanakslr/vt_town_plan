@@ -30,10 +30,6 @@ class ProseMirrorNode:
         self.index = index
         self.chapter = chapter
 
-        # Generate a unique ID if not already present
-        if "id" not in self.attrs:
-            self.attrs["id"] = clean_id(self._generate_id())
-
     def _generate_id(self) -> str:
         """Generate a unique, deterministic ID for this node."""
         # Default implementation, should be overridden by subclasses
@@ -82,13 +78,14 @@ class HeadingNode(ProseMirrorNode):
     """Represents a heading node in ProSeMirror."""
 
     def __init__(self, node_data: Dict[str, Any], index: int = 0, chapter: str = ""):
-        super().__init__(node_data, index, chapter)
-        self.level = self.attrs.get("level", 1)
+        # Initialize text_nodes first so they're available for ID generation
         self.text_nodes = [
             TextNode(c, i, chapter)
-            for i, c in enumerate(self.content)
+            for i, c in enumerate(node_data.get("content", []))
             if c.get("type") == "text"
         ]
+        super().__init__(node_data, index, chapter)
+        self.level = self.attrs.get("level", 1)
 
     def get_text(self) -> str:
         return " ".join(n.get_text() for n in self.text_nodes)
