@@ -101,7 +101,7 @@ def create_query_engine(
     # Set up the vector database connection
     client = qdrant_client.QdrantClient(
         url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-        api_key=os.getenv("QDRANT_API_KEY", None),
+        api_key=os.getenv("QDRANT_CLOUD_API_KEY", None),
     )
 
     # Set up Qdrant vector store

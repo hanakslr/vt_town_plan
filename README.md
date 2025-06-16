@@ -37,3 +37,5 @@ docker compose -f docker/db.yml down -v
 docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant
 
 docker stop qdrant && docker rm qdrant
+
+http://localhost:6333/dashboard

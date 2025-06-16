@@ -5,6 +5,7 @@ from .document_section import DocumentSection
 from .fact import Fact
 from .goals_2050 import Goals2050
 from .heading import Heading
+from .image import Image
 from .objective import Objective
 from .paragraph import Paragraph
 from .public_engagement import PublicEngagementFindings
@@ -28,4 +29,5 @@ __all__ = [
     "ActionTable",
     "StructuredDocument",
     "DocumentSection",
+    "Image",
 ]
