@@ -4,9 +4,10 @@ and generating embeddings.
 """
 
 import json
+import os
 from collections import defaultdict
-from dataclasses import asdict, is_dataclass
-from typing import Any, Dict
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any, Dict, List, Optional
 from zipfile import ZipFile
 
 import psycopg
@@ -37,8 +38,6 @@ from elements import (
     Table as TableModel,
 )
 from parsers.table_parsers import TableMerger, TableParserFactory, TableStyles
-
-USE_PLACEHOLDER_IMAGES = True
 
 
 # Step 1: Load the numbering.xml file from the .docx archive
@@ -81,13 +80,26 @@ def parse_numbering_definitions(numbering_tree):
     return numId_to_abstractId, abstractId_to_levels
 
 
+@dataclass
+class Image:
+    """Represents an image extracted from the document."""
+
+    filename: str
+    alt_text: Optional[str] = None
+    section_path: Optional[List[str]] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
 class DocumentExtract:
     doc: Document
     current_section: list[Heading]
     numbering_tree: Any
     document: StructuredDocument
+    images: List[Image]
+    image_output_dir: str
 
-    def __init__(self, file_path: str) -> None:
+    def __init__(self, file_path: str, image_output_dir: str = "output/images") -> None:
         self.doc = Document(file_path)
         self.current_section = []
         self.document = StructuredDocument()
@@ -96,6 +108,9 @@ class DocumentExtract:
             parse_numbering_definitions(self.numbering_tree)
         )
         self.list_counters = defaultdict(lambda: defaultdict(int))
+        self.images = []
+        self.image_output_dir = image_output_dir
+        os.makedirs(image_output_dir, exist_ok=True)
 
     def extract(self):
         """
@@ -198,6 +213,9 @@ class DocumentExtract:
 
     def dump_to_file(self, path):
         """Save the structured document to a JSON file."""
+        # Add images to the document structure
+        self.document.images = [asdict(img) for img in self.images]
+
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.document.to_dict(), f, indent=2)
 
@@ -357,9 +375,71 @@ class DocumentExtract:
             )
         return result if result else None
 
+    def _extract_images_from_paragraph(self, paragraph: Paragraph) -> List[Image]:
+        """Extract images from a paragraph."""
+        images = []
+        for run in paragraph.runs:
+            for element in run._element.iterchildren():
+                if element.tag == qn("w:drawing"):
+                    # Find the blip element which contains the image reference
+                    blip = element.find(
+                        ".//a:blip",
+                        {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"},
+                    )
+                    if blip is not None:
+                        # Get the image ID from the blip element
+                        embed = blip.get(qn("r:embed"))
+                        if embed:
+                            # Get the image data from the document
+                            image_part = self.doc.part.related_parts[embed]
+                            # Generate a unique filename
+                            image_filename = f"image_{len(self.images) + 1}.{image_part.content_type.split('/')[-1]}"
+                            image_path = os.path.join(
+                                self.image_output_dir, image_filename
+                            )
+
+                            # Save the image
+                            with open(image_path, "wb") as f:
+                                f.write(image_part.blob)
+
+                            # Get image dimensions if available
+                            width = None
+                            height = None
+                            extent = element.find(
+                                ".//wp:extent",
+                                {
+                                    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                                },
+                            )
+                            if extent is not None:
+                                width = (
+                                    int(extent.get("cx", 0)) // 9525
+                                )  # Convert EMUs to pixels
+                                height = int(extent.get("cy", 0)) // 9525
+
+                            # Create image object
+                            image = Image(
+                                filename=image_filename,
+                                alt_text=paragraph.text.strip()
+                                if paragraph.text.strip()
+                                else None,
+                                section_path=[s.text for s in self.current_section],
+                                width=width,
+                                height=height,
+                            )
+                            images.append(image)
+                            self.images.append(image)
+        return images
+
     def _extract_paragraph(self, paragraph: Paragraph) -> DocumentSection:
-        if not paragraph.text.strip():
+        if not paragraph.text.strip() and not any(
+            run._element.findall(qn("w:drawing")) for run in paragraph.runs
+        ):
             return None
+
+        # Extract any images in the paragraph
+        images = self._extract_images_from_paragraph(paragraph)
+
         if paragraph.style.name == "Section Heading":
             level = 2
             while self.current_section and self.current_section[-1].level >= level:
@@ -376,17 +456,20 @@ class DocumentExtract:
                 paragraph_style=paragraph.style.name,
                 text=paragraph.text.strip(),
                 section_path=[s.text for s in self.current_section],
+                images=images if images else None,
             )
         elif paragraph.style.name in ["Normal", "No Spacing", "paragraph"]:
             return Para(
                 paragraph_style=paragraph.style.name,
                 text=paragraph.text.strip(),
                 section_path=[s.text for s in self.current_section],
+                images=images if images else None,
             )
         elif paragraph.style.name == "Caption":
             return Caption(
                 text=paragraph.text.strip(),
                 section_path=[s.text for s in self.current_section],
+                images=images if images else None,
             )
         else:
             raise Exception(

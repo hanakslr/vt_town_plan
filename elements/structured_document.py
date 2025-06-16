@@ -2,8 +2,11 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional
 
 from .action_table import ActionTable
+from .caption import Caption
 from .document_section import DocumentSection
 from .goals_2050 import Goals2050
+from .image import Image
+from .paragraph import Paragraph
 from .public_engagement import PublicEngagementFindings
 from .three_facts import ThreeFacts
 
@@ -20,6 +23,7 @@ class StructuredDocument:
         public_engagement: The public engagement findings if present
         actions: The action table data if present
         content: General content elements (headings, paragraphs, etc.)
+        images: List of all images in the document
     """
 
     def __init__(
@@ -31,6 +35,7 @@ class StructuredDocument:
         public_engagement: Optional[PublicEngagementFindings] = None,
         actions: Optional[ActionTable] = None,
         content: List[DocumentSection] = None,
+        images: List[Image] = None,
     ):
         self.chapter_number = chapter_number
         self.title = title
@@ -39,13 +44,16 @@ class StructuredDocument:
         self.public_engagement = public_engagement
         self.actions = actions
         self.content = content or []
+        self.images = images or []
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the structured document to a dictionary."""
         # Preserve section_path in content items for hierarchical organization
         content_dicts = []
         for item in self.content:
-            if isinstance(item, DocumentSection):
+            if isinstance(item, (Paragraph, Caption)):
+                item_dict = item.to_dict()
+            elif isinstance(item, DocumentSection):
                 item_dict = item.to_dict()
             elif is_dataclass(item):
                 item_dict = asdict(item)
@@ -57,11 +65,24 @@ class StructuredDocument:
                 item_dict["section_path"] = item.section_path
             content_dicts.append(item_dict)
 
+        # Convert images to dictionaries, handling both dataclass and non-dataclass instances
+        image_dicts = []
+        for img in self.images:
+            if is_dataclass(img):
+                image_dicts.append(asdict(img))
+            elif isinstance(img, dict):
+                image_dicts.append(img)
+            else:
+                image_dicts.append({"value": str(img)})
+
         result = {
             "chapter_number": self.chapter_number,
             "title": self.title,
             "content": content_dicts,
         }
+
+        if image_dicts:
+            result["images"] = image_dicts
 
         # Only include special sections if they exist
         if self.goals_2050:
