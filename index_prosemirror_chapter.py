@@ -21,7 +21,6 @@ from llama_index.core import Document, Settings, StorageContext, VectorStoreInde
 from llama_index.core.node_parser import SimpleNodeParser
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.vector_stores.qdrant.base import QdrantVectorStore
-from qdrant_client import QdrantClient
 from qdrant_client import models
 
 from convert_to_prosemirror import (

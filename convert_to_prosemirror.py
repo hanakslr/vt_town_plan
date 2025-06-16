@@ -1,7 +1,7 @@
 import glob
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 def clean_id(s: str) -> str:
