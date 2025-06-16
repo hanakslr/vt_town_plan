@@ -1,2 +1,10 @@
 files/
 output/
+.env
+
+qdrant_storage/*
+
+__pycache__/
+*.py[cod]
+*$py.class
+*/__pycache__/
